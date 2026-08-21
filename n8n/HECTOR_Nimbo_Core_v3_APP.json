@@ -1,0 +1,1167 @@
+{
+  "name": "HECTOR - Nimbo Core v3 - APP",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "1",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1200,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "action",
+              "value": "consultar_disponibilidad",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "telefono",
+              "value": "3321651509",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "modalidad",
+              "value": "presencial",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "duracion",
+              "value": 60,
+              "type": "number"
+            },
+            {
+              "id": "a5",
+              "name": "first_name",
+              "value": "PRUEBA",
+              "type": "string"
+            },
+            {
+              "id": "a6",
+              "name": "last_name",
+              "value": "APP HECTOR",
+              "type": "string"
+            },
+            {
+              "id": "a7",
+              "name": "born_at",
+              "value": "1990-01-01",
+              "type": "string"
+            },
+            {
+              "id": "a8",
+              "name": "gender",
+              "value": "m",
+              "type": "string"
+            },
+            {
+              "id": "a9",
+              "name": "email",
+              "value": "prueba@notiene.com",
+              "type": "string"
+            },
+            {
+              "id": "a10",
+              "name": "paciente_id",
+              "value": "8036709",
+              "type": "string"
+            },
+            {
+              "id": "a11",
+              "name": "fecha",
+              "value": "2026-09-07",
+              "type": "string"
+            },
+            {
+              "id": "a12",
+              "name": "hora",
+              "value": "20:00",
+              "type": "string"
+            },
+            {
+              "id": "a13",
+              "name": "motivo_consulta",
+              "value": "revision",
+              "type": "string"
+            },
+            {
+              "id": "a14",
+              "name": "encounter_type_id",
+              "value": "1655",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "2",
+      "name": "Datos Prueba",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1000,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "hector-app-core",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "3",
+      "name": "Webhook Hector APP",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1200,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const s=$input.first().json; const b=s.body||s;\nreturn [{json:{\naction:b.action||'test_nimbo',\ntelefono:String(b.telefono||'').replace(/\\D/g,'').slice(-10),\nfirst_name:b.first_name||b.nombre||'',\nlast_name:b.last_name||b.apellidos||'',\nborn_at:b.born_at||b.fecha_nacimiento||'',\ngender:String(b.gender||b.sexo||'').toLowerCase(),\nemail:b.email||'',\npaciente_id:String(b.paciente_id||b.person_id||''),\nmodalidad:String(b.modalidad||'presencial').toLowerCase(),\nduracion:Number(b.duracion||60),\nfecha:b.fecha||'', hora:b.hora||'',\nstarts_at:b.starts_at||'', ends_at:b.ends_at||'',\nmotivo_consulta:b.motivo_consulta||b.cause||'',\nencounter_type_id:String(b.encounter_type_id||''),\nservicio_id:b.servicio_id||'',\naccount_id:'1356', source_slug:'HCARRILLO'\n}}];"
+      },
+      "id": "4",
+      "name": "Normalizar Request APP",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1000,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "test_nimbo",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Test Nimbo"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "buscar_paciente",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Buscar Paciente"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "consultar_disponibilidad",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Disponibilidad"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "crear_paciente",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Crear Paciente"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "crear_cita",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Crear Cita"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "5",
+      "name": "Router APP",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -780,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://nimbo-api-production.ecs-apis.com/api/v1/oauth/token",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formData",
+              "name": "username",
+              "value": "REEMPLAZAR_CORREO_NIMBO"
+            },
+            {
+              "parameterType": "formData",
+              "name": "password",
+              "value": "REEMPLAZAR_PASSWORD_NIMBO"
+            },
+            {
+              "parameterType": "formData",
+              "name": "grant_type",
+              "value": "password"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "6",
+      "name": "Nimbo Auth Test",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -540,
+        -420
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://nimbo-api-production.ecs-apis.com/api/v1/organizations/current",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Nimbo Auth Test').item.json.access_token }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "7",
+      "name": "Nimbo Organizacion Actual",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -300,
+        -420
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ok:true,nimbo:'conectado',organization:$json}) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "8",
+      "name": "Responder Test",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        -60,
+        -420
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://nimbo-api-production.ecs-apis.com/api/v1/oauth/token",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formData",
+              "name": "username",
+              "value": "REEMPLAZAR_CORREO_NIMBO"
+            },
+            {
+              "parameterType": "formData",
+              "name": "password",
+              "value": "REEMPLAZAR_PASSWORD_NIMBO"
+            },
+            {
+              "parameterType": "formData",
+              "name": "grant_type",
+              "value": "password"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "9",
+      "name": "Nimbo Auth Buscar",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -540,
+        -150
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://nimbo-api-production.ecs-apis.com/api/v1/people?query=' + encodeURIComponent($json.telefono || $('Datos Prueba').item.json.telefono) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Nimbo Auth Buscar').item.json.access_token }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "10",
+      "name": "Nimbo Buscar Paciente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -300,
+        -150
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const r=$input.first().json; let p=[]; if(Array.isArray(r))p=r; else if(Array.isArray(r.people))p=r.people; else if(Array.isArray(r.data))p=r.data; else if(Array.isArray(r.results))p=r.results; const x=p[0]||null; return [{json:{ok:true,encontrado:!!x,paciente:x?{id:x.id,nombre:x.full_name||[x.first_name,x.last_name].filter(Boolean).join(' '),first_name:x.first_name||'',last_name:x.last_name||'',telefono:x.telephone2||x.telephone||x.phone||'',email:x.email||''}:null}}];"
+      },
+      "id": "11",
+      "name": "Procesar Paciente",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -60,
+        -150
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "12",
+      "name": "Responder Paciente",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        180,
+        -150
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://nimbo-api-production.ecs-apis.com/api/v1/oauth/token",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formData",
+              "name": "username",
+              "value": "REEMPLAZAR_CORREO_NIMBO"
+            },
+            {
+              "parameterType": "formData",
+              "name": "password",
+              "value": "REEMPLAZAR_PASSWORD_NIMBO"
+            },
+            {
+              "parameterType": "formData",
+              "name": "grant_type",
+              "value": "password"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "13",
+      "name": "Nimbo Auth Disponibilidad",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -540,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://nimbo-api-production.ecs-apis.com/api/v1/consultation_schedules",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "account_id",
+              "value": "1356"
+            },
+            {
+              "name": "start_from",
+              "value": "={{ $now.toFormat('yyyy-MM-dd') }}"
+            },
+            {
+              "name": "end_from",
+              "value": "={{ $now.plus({ months: 2 }).toFormat('yyyy-MM-dd') }}"
+            },
+            {
+              "name": "view_canceled_appointment",
+              "value": "false"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Nimbo Auth Disponibilidad').item.json.access_token }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "14",
+      "name": "Nimbo Consultation Schedules",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -300,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "calendar": {
+          "__rl": true,
+          "value": "smedicahr@gmail.com",
+          "mode": "list",
+          "cachedResultName": "smedicahr@gmail.com"
+        },
+        "returnAll": true,
+        "options": {
+          "timeMin": "={{ $now.startOf('day') }}",
+          "timeMax": "={{ $now.plus({ months: 2 }).endOf('day') }}",
+          "singleEvents": true
+        }
+      },
+      "id": "15",
+      "name": "GCal Eventos Doctor",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.2,
+      "position": [
+        -300,
+        260
+      ],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "name": "smedicahr cuenta"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "options": {}
+      },
+      "id": "16",
+      "name": "Merge Nimbo + GCal",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -40,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items=$input.all();\nlet req={};\ntry{req=$('Normalizar Request APP').first().json||{}}catch(e){try{req=$('Datos Prueba').first().json||{}}catch(e2){req={}}}\nconst modalidad=String(req.modalidad||'presencial').toLowerCase();\nconst duracionMin=Number(req.duracion||60);\nconst TZ='-06:00', now=new Date();\nconst wh={1:{start:15,end:20},2:{start:15,end:20},3:{start:9,end:14},4:{start:15,end:20},5:{start:9,end:14},6:{start:9,end:14}};\nconst busy=[];\nfor(const item of items){\n const j=item.json||{};\n const ss=j.consultation_schedules||j['horarios de consulta']||j.horarios_de_consulta;\n if(Array.isArray(ss)){for(const s of ss){const a=s.starts_at||s.comienza_en,b=s.ends_at||s.termina_en;if(a&&b)busy.push({start:new Date(a),end:new Date(b)});}continue;}\n if(j.start?.date&&j.end?.date){const a=new Date(`${j.start.date}T00:00:00${TZ}`),b=new Date(`${j.end.date}T00:00:00${TZ}`);busy.push({start:a,end:new Date(b.getTime()-1000)});continue;}\n if(j.start?.dateTime&&j.end?.dateTime)busy.push({start:new Date(j.start.dateTime),end:new Date(j.end.dateTime)});\n}\nconst pad=n=>String(n).padStart(2,'0');\nconst key=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;\nconst zoned=(k,h)=>new Date(`${k}T${pad(h)}:00:00${TZ}`);\nconst occupied=(a,b)=>busy.some(x=>a<x.end&&b>x.start);\nconst seen=new Set(), pref=[], other=[];\nfunction add(a,b,k,h,bucket){if(a<=now||occupied(a,b))return;const id=`${k}-${h}`;if(seen.has(id))return;seen.add(id);bucket.push({fecha:k,hora:`${pad(h)}:00`,inicio_iso:a.toISOString(),fin_iso:b.toISOString()});}\nfor(let d=0;d<60;d++){\n const base=new Date();base.setHours(0,0,0,0);base.setDate(base.getDate()+d);\n const day=base.getDay();if(!wh[day])continue;\n const k=key(base), w=wh[day];\n if(modalidad==='virtual'){const a=zoned(k,20),b=new Date(a.getTime()+duracionMin*60000);add(a,b,k,20,pref);}\n for(let h=w.start;h<w.end;h++){const a=zoned(k,h),b=new Date(a.getTime()+duracionMin*60000);add(a,b,k,h,other);}\n}\nconst horarios=(modalidad==='virtual'?[...pref.slice(0,5),...other]:other).slice(0,15);\nreturn [{json:{ok:true,modalidad,duracion:duracionMin,total_ocupados_detectados:busy.length,total_disponibles:horarios.length,horarios}}];"
+      },
+      "id": "17",
+      "name": "Procesar Disponibilidad APP",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        200,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "18",
+      "name": "Responder Disponibilidad",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        440,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://nimbo-api-production.ecs-apis.com/api/v1/oauth/token",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formData",
+              "name": "username",
+              "value": "REEMPLAZAR_CORREO_NIMBO"
+            },
+            {
+              "parameterType": "formData",
+              "name": "password",
+              "value": "REEMPLAZAR_PASSWORD_NIMBO"
+            },
+            {
+              "parameterType": "formData",
+              "name": "grant_type",
+              "value": "password"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "19",
+      "name": "Nimbo Auth Crear Paciente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -540,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "let r={}; try{r=$('Normalizar Request APP').first().json||{}}catch(e){r=$('Datos Prueba').first().json||{}}\nlet g=String(r.gender||'').toLowerCase(); if(['masculino','male','hombre'].includes(g))g='m'; if(['femenino','female','mujer'].includes(g))g='f';\nconst miss=['first_name','last_name','born_at','gender','email','telefono'].filter(k=>!r[k]); if(miss.length) throw new Error('Faltan campos obligatorios: '+miss.join(', '));\nreturn [{json:{person:{account_id:'1356',address_state_id:'14',born_at:r.born_at,email:r.email,first_name:r.first_name,gender:g,last_name:r.last_name,maternal_name:null,middle_name:null,notes:null,patient_group_id:null,patient_group_ids:[],person_attributes:{send_reminders:false},phone_country_id:'142',send_welcome_email:false,telephone:null,telephone2:r.telefono,welcome_message:true,without_cellphone:false}}}];"
+      },
+      "id": "20",
+      "name": "Preparar Paciente Nimbo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -300,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://nimbo-api-production.ecs-apis.com/api/v1/people",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Nimbo Auth Crear Paciente').item.json.access_token }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "21",
+      "name": "Crear Paciente Nimbo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -60,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const r=$input.first().json; const p=r.person||r; return [{json:{ok:true,creado:true,paciente:{id:p.id||null,nombre:p.full_name||[p.first_name,p.last_name].filter(Boolean).join(' '),first_name:p.first_name||'',last_name:p.last_name||'',telefono:p.telephone2||'',email:p.email||''}}}];"
+      },
+      "id": "22",
+      "name": "Procesar Paciente Creado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        180,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "23",
+      "name": "Responder Crear Paciente",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        420,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://nimbo-api-production.ecs-apis.com/api/v1/oauth/token",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formData",
+              "name": "username",
+              "value": "REEMPLAZAR_CORREO_NIMBO"
+            },
+            {
+              "parameterType": "formData",
+              "name": "password",
+              "value": "REEMPLAZAR_PASSWORD_NIMBO"
+            },
+            {
+              "parameterType": "formData",
+              "name": "grant_type",
+              "value": "password"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "24",
+      "name": "Nimbo Auth Crear Cita",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -540,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "let r={}; try{r=$('Normalizar Request APP').first().json||{}}catch(e){r=$('Datos Prueba').first().json||{}}\nconst pad=n=>String(n).padStart(2,'0'), dur=Number(r.duracion||60);\nif(!r.paciente_id) throw new Error('Falta paciente_id'); if(!r.encounter_type_id) throw new Error('Falta encounter_type_id'); if(!r.motivo_consulta) throw new Error('Falta motivo_consulta');\nlet s=r.starts_at,e=r.ends_at;\nif(!s){if(!r.fecha||!r.hora) throw new Error('Falta fecha/hora'); s=`${r.fecha}T${r.hora}:00.000-06:00`;}\nif(!e){const d=new Date(s), z=new Date(d.getTime()+dur*60000-6*3600000); e=`${z.getUTCFullYear()}-${pad(z.getUTCMonth()+1)}-${pad(z.getUTCDate())}T${pad(z.getUTCHours())}:${pad(z.getUTCMinutes())}:00.000-06:00`;}\nreturn [{json:{consultation_schedule:{account_confirmed:true,account_id:'1356',blocked_cause:null,cause:r.motivo_consulta,encounter_type_id:String(r.encounter_type_id),ends_at:e,extra:{},metadata:{share_payment_link:false,send_payment_link:false},person_id:String(r.paciente_id),price:0,reminder:false,schedule_type:'appointment',sms_reminder:false,source:'personal_agenda',source_slug:'HCARRILLO',starts_at:s,status:null}}}];"
+      },
+      "id": "25",
+      "name": "Preparar Cita Nimbo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -300,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://nimbo-api-production.ecs-apis.com/api/v1/consultation_schedules",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Nimbo Auth Crear Cita').item.json.access_token }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "26",
+      "name": "Crear Cita Nimbo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -60,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const r=$input.first().json; const c=r.consultation_schedule||r; return [{json:{ok:true,creada:true,cita:{id:c.id||null,person_id:c.person_id||null,account_id:c.account_id||'1356',encounter_type_id:c.encounter_type_id||null,motivo_consulta:c.cause||'',starts_at:c.starts_at||'',ends_at:c.ends_at||'',source_slug:c.source_slug||'HCARRILLO'}}}];"
+      },
+      "id": "27",
+      "name": "Procesar Cita Creada",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        180,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "28",
+      "name": "Responder Crear Cita",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        420,
+        760
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Datos Prueba",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Datos Prueba": {
+      "main": [
+        [
+          {
+            "node": "Router APP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Hector APP": {
+      "main": [
+        [
+          {
+            "node": "Normalizar Request APP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar Request APP": {
+      "main": [
+        [
+          {
+            "node": "Router APP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Router APP": {
+      "main": [
+        [
+          {
+            "node": "Nimbo Auth Test",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Nimbo Auth Buscar",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Nimbo Auth Disponibilidad",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "GCal Eventos Doctor",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Nimbo Auth Crear Paciente",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Nimbo Auth Crear Cita",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nimbo Auth Test": {
+      "main": [
+        [
+          {
+            "node": "Nimbo Organizacion Actual",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nimbo Organizacion Actual": {
+      "main": [
+        [
+          {
+            "node": "Responder Test",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nimbo Auth Buscar": {
+      "main": [
+        [
+          {
+            "node": "Nimbo Buscar Paciente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nimbo Buscar Paciente": {
+      "main": [
+        [
+          {
+            "node": "Procesar Paciente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Procesar Paciente": {
+      "main": [
+        [
+          {
+            "node": "Responder Paciente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nimbo Auth Disponibilidad": {
+      "main": [
+        [
+          {
+            "node": "Nimbo Consultation Schedules",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nimbo Consultation Schedules": {
+      "main": [
+        [
+          {
+            "node": "Merge Nimbo + GCal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GCal Eventos Doctor": {
+      "main": [
+        [
+          {
+            "node": "Merge Nimbo + GCal",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Nimbo + GCal": {
+      "main": [
+        [
+          {
+            "node": "Procesar Disponibilidad APP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Procesar Disponibilidad APP": {
+      "main": [
+        [
+          {
+            "node": "Responder Disponibilidad",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nimbo Auth Crear Paciente": {
+      "main": [
+        [
+          {
+            "node": "Preparar Paciente Nimbo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Paciente Nimbo": {
+      "main": [
+        [
+          {
+            "node": "Crear Paciente Nimbo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Crear Paciente Nimbo": {
+      "main": [
+        [
+          {
+            "node": "Procesar Paciente Creado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Procesar Paciente Creado": {
+      "main": [
+        [
+          {
+            "node": "Responder Crear Paciente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nimbo Auth Crear Cita": {
+      "main": [
+        [
+          {
+            "node": "Preparar Cita Nimbo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Cita Nimbo": {
+      "main": [
+        [
+          {
+            "node": "Crear Cita Nimbo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Crear Cita Nimbo": {
+      "main": [
+        [
+          {
+            "node": "Procesar Cita Creada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Procesar Cita Creada": {
+      "main": [
+        [
+          {
+            "node": "Responder Crear Cita",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Mexico_City"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

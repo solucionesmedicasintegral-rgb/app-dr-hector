@@ -1,0 +1,16 @@
+{
+  "name": "Admin · Dr. Héctor",
+  "short_name": "Héctor Admin",
+  "start_url": "./admin.html",
+  "display": "standalone",
+  "background_color": "#edf2f5",
+  "theme_color": "#062f54",
+  "icons": [
+    {
+      "src": "assets/logo-admin.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
