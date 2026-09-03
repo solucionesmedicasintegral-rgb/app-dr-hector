@@ -47,10 +47,18 @@ body{background:var(--cream);font-family:Inter,system-ui,sans-serif;color:#24242
 .install-dismiss{background:#f1f3f5;color:#59636c}
 .install-primary{background:var(--olive);color:white}
 
+
+.payment-data{display:grid;gap:10px;margin-top:14px}
+.payment-data>div{display:grid;grid-template-columns:100px 1fr auto;gap:10px;align-items:center;padding:12px;border:1px solid #e6e3d8;border-radius:14px;background:#fff}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+.ok{margin-top:12px;padding:10px 12px;border-radius:12px;background:#edf6ee;color:#315d38;font-size:14px}
+.muted{color:#6d746f;font-size:14px}
+@media(max-width:560px){.grid2{grid-template-columns:1fr}.payment-data>div{grid-template-columns:1fr}.payment-data button{width:100%}}
+
 </style>
 </head>
 <body>
-<div id="app"></div>
+<div id="app"></div><div id="paymentOptionsMount"></div>
 <div id="installMount"></div>
 
 <script src="config.js"></script>
@@ -522,8 +530,51 @@ window.addEventListener('beforeinstallprompt',(e)=>{e.preventDefault();deferredI
 window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;installBannerDismissed=true;renderInstallBanner();});
 setTimeout(renderInstallBanner,900);
 
+
+async function copyTextValue(value,label='Dato'){
+  try{await navigator.clipboard.writeText(String(value||''));alert(label+' copiado')}
+  catch(e){alert('No pude copiar el dato automáticamente.')}
+}
+function buildPaymentPanel(){
+  const bank={banco:'HSBC',titular:'HÉCTOR JESÚS CARRILLO VIDRIO',cuenta:'6453507182',clabe:'021320064535071827'};
+  if(window._hectorPaymentStatus==='pendiente_liga'){
+    return `<div class="card" style="margin-top:16px"><h3>Solicitud de liga registrada</h3><p>Tu cita quedó agendada. Nuestro equipo preparará la liga de pago y dará seguimiento.</p><div class="ok">Estado: pendiente de liga</div></div>`;
+  }
+  if(window._hectorPaymentStatus==='pendiente_transferencia'){
+    return `<div class="card" style="margin-top:16px"><h3>Transferencia bancaria</h3><p>Tu cita quedó agendada. Realiza tu transferencia con estos datos:</p>
+    <div class="payment-data">
+      <div><b>Banco</b><span>${bank.banco}</span></div>
+      <div><b>Titular</b><span>${bank.titular}</span></div>
+      <div><b>No. cuenta</b><span>${bank.cuenta}</span><button class="secondary" onclick="copyTextValue('${bank.cuenta}','Cuenta')">Copiar</button></div>
+      <div><b>CLABE</b><span>${bank.clabe}</span><button class="secondary" onclick="copyTextValue('${bank.clabe}','CLABE')">Copiar</button></div>
+    </div>
+    <p class="muted" style="margin-top:14px">Una vez realizada la transferencia, indica como referencia tu primer nombre y apellido. Si requieres factura, envíanos tu constancia de situación fiscal y el comprobante de pago por este medio.</p>
+    <div class="ok">Estado: transferencia pendiente de validación</div></div>`;
+  }
+  return `<div class="card" style="margin-top:16px"><h3>¿Cómo deseas continuar con el pago?</h3><p>Tu cita ya quedó registrada. Elige una opción para continuar.</p>
+  <div class="grid2"><button class="primary" onclick="requestPayment('liga')">Solicitar liga de pago</button><button class="secondary" onclick="requestPayment('transferencia')">Transferencia bancaria</button></div></div>`;
+}
+async function requestPayment(method){
+  const cfg=window.HECTOR_CONFIG||{};
+  const p=(window.state&&state.patient)||{};
+  const svc=(window.state&&(state.selectedService||state.servicio))||{};
+  const payload={action:'solicitar_pago',paciente_id:String(p.id||p.person_id||''),telefono:String(p.telefono||p.telephone2||p.telephone||''),email:String(p.email||''),servicio_id:String(svc.code||svc.id||svc.servicio_id||''),monto:Number(svc.promo||svc.price||svc.precio||svc.regular||0),metodo_pago:method};
+  try{
+    const r=await fetch(cfg.webhook,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const data=await r.json().catch(()=>({}));
+    if(!r.ok||data.ok===false)throw new Error('payment');
+    window._hectorPaymentStatus=data.estado_pago||(method==='liga'?'pendiente_liga':'pendiente_transferencia');
+    const mount=document.getElementById('paymentOptionsMount');
+    if(mount)mount.innerHTML=buildPaymentPanel();
+  }catch(e){alert('Tu cita sí quedó agendada, pero no fue posible registrar la forma de pago.')}
+}
+function mountPaymentOptions(){
+  const mount=document.getElementById('paymentOptionsMount');
+  if(mount)mount.innerHTML=buildPaymentPanel();
+}
+
 render();
-if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js?v=40');
 </script>
 </body>
 </html>
