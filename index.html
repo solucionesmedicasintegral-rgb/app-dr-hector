@@ -47,18 +47,10 @@ body{background:var(--cream);font-family:Inter,system-ui,sans-serif;color:#24242
 .install-dismiss{background:#f1f3f5;color:#59636c}
 .install-primary{background:var(--olive);color:white}
 
-
-.payment-data{display:grid;gap:10px;margin-top:14px}
-.payment-data>div{display:grid;grid-template-columns:100px 1fr auto;gap:10px;align-items:center;padding:12px;border:1px solid #e6e3d8;border-radius:14px;background:#fff}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
-.ok{margin-top:12px;padding:10px 12px;border-radius:12px;background:#edf6ee;color:#315d38;font-size:14px}
-.muted{color:#6d746f;font-size:14px}
-@media(max-width:560px){.grid2{grid-template-columns:1fr}.payment-data>div{grid-template-columns:1fr}.payment-data button{width:100%}}
-
 </style>
 </head>
 <body>
-<div id="app"></div><div id="paymentOptionsMount"></div>
+<div id="app"></div>
 <div id="installMount"></div>
 
 <script src="config.js"></script>
@@ -77,7 +69,9 @@ let state={
   calendarMonth:null,
   loading:false,
   loadingText:'',
-  bookingResult:null
+  bookingResult:null,
+  paymentStatus:null,
+  paymentMethod:null
 };
 
 const money=n=>n==null?'—':new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN',maximumFractionDigits:0}).format(n);
@@ -460,6 +454,94 @@ async function confirmBooking(){
   }
 }
 
+
+async function copyPaymentValue(value,label){
+  try{
+    await navigator.clipboard.writeText(String(value||''));
+    toast(label+' copiado');
+  }catch(e){
+    toast('No pude copiar '+label.toLowerCase());
+  }
+}
+
+async function choosePayment(method){
+  const b=state.bookingResult;
+  if(!b)return;
+
+  const payload={
+    action:'solicitar_pago',
+    paciente_id:String(state.patient?.id||''),
+    telefono:String(state.patient?.telefono||state.patient?.telephone2||state.patient?.telephone||''),
+    email:String(state.patient?.email||''),
+    servicio_id:String(b.service?.code||b.service?.id||''),
+    monto:Number(b.service?.promo??b.service?.regular??0),
+    metodo_pago:method,
+    fecha:String(b.slot?.fecha||''),
+    hora:String(b.slot?.hora||'')
+  };
+
+  setLoading(true,method==='liga'?'Registrando solicitud de liga…':'Preparando transferencia…');
+
+  try{
+    const r=await api(payload);
+    state.loading=false;
+    state.paymentMethod=method;
+    state.paymentStatus=r.estado_pago||(method==='liga'?'pendiente_liga':'pendiente_transferencia');
+    render();
+  }catch(e){
+    state.loading=false;
+    render();
+    toast('Tu cita sí quedó agendada, pero no pude registrar la forma de pago');
+  }
+}
+
+function paymentSection(){
+  if(state.paymentStatus==='pendiente_liga'){
+    return `<div class="bg-[#f5f7ef] border border-[#dfe7d4] rounded-2xl p-4 mt-5 text-left">
+      <div class="font-semibold">Solicitud de liga registrada ✓</div>
+      <div class="text-sm text-stone-600 mt-1">Nuestro equipo dará seguimiento para enviarte la liga de pago.</div>
+    </div>`;
+  }
+
+  if(state.paymentStatus==='pendiente_transferencia'){
+    return `<div class="bg-[#faf8f1] rounded-2xl p-4 mt-5 text-left">
+      <div class="font-semibold text-lg">Datos para transferencia</div>
+      <div class="text-sm text-stone-500 mt-1">HSBC · Héctor Jesús Carrillo Vidrio</div>
+
+      <div class="mt-4">
+        <div class="text-xs text-stone-500">No. de cuenta</div>
+        <div class="flex items-center justify-between gap-3 mt-1">
+          <div class="font-semibold tracking-wide">6453507182</div>
+          <button onclick="copyPaymentValue('6453507182','Cuenta')" class="border rounded-xl px-3 py-2 text-sm">Copiar</button>
+        </div>
+      </div>
+
+      <div class="mt-4">
+        <div class="text-xs text-stone-500">CLABE</div>
+        <div class="flex items-center justify-between gap-3 mt-1">
+          <div class="font-semibold tracking-wide break-all">021320064535071827</div>
+          <button onclick="copyPaymentValue('021320064535071827','CLABE')" class="border rounded-xl px-3 py-2 text-sm">Copiar</button>
+        </div>
+      </div>
+
+      <div class="text-sm text-stone-600 mt-4">
+        Una vez realizada la transferencia, por favor indica como referencia tu primer nombre y apellido.
+        Si requieres factura, es indispensable enviarnos tu constancia de situación fiscal y el comprobante de pago por este medio.
+      </div>
+      <div class="text-xs text-amber-700 mt-3">Pago pendiente de validación.</div>
+    </div>`;
+  }
+
+  return `<div class="border border-[#e7e0cc] rounded-2xl p-4 mt-5 text-left">
+    <div class="font-semibold text-lg">¿Cómo deseas continuar con el pago?</div>
+    <div class="text-sm text-stone-500 mt-1">Tu cita ya quedó registrada. Elige una opción.</div>
+    <div class="grid sm:grid-cols-2 gap-3 mt-4">
+      <button onclick="choosePayment('liga')" class="btn rounded-2xl py-3.5 font-semibold">Solicitar liga de pago</button>
+      <button onclick="choosePayment('transferencia')" class="border border-[#d8c997] rounded-2xl py-3.5 font-semibold text-[#5f552d]">Transferencia bancaria</button>
+    </div>
+  </div>`;
+}
+
 function success(){
   const b=state.bookingResult;
   const d=parseDateOnly(b.slot.fecha);
@@ -475,7 +557,10 @@ function success(){
         <div><div class="text-xs text-stone-500">Hora</div><div class="font-medium">${b.slot.hora}</div></div>
       </div>
     </div>
-    <button onclick="finishBooking()" class="btn w-full rounded-2xl py-4 mt-5 font-semibold">Volver al inicio</button>
+
+    ${paymentSection()}
+
+    <button onclick="finishBooking()" class="w-full border rounded-2xl py-4 mt-5 font-semibold">Volver al inicio</button>
   </section>`;
 }
 
@@ -487,6 +572,8 @@ function finishBooking(){
   state.selectedDate=null;
   state.calendarMonth=null;
   state.bookingResult=null;
+  state.paymentStatus=null;
+  state.paymentMethod=null;
   render();
 }
 
@@ -530,51 +617,8 @@ window.addEventListener('beforeinstallprompt',(e)=>{e.preventDefault();deferredI
 window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;installBannerDismissed=true;renderInstallBanner();});
 setTimeout(renderInstallBanner,900);
 
-
-async function copyTextValue(value,label='Dato'){
-  try{await navigator.clipboard.writeText(String(value||''));alert(label+' copiado')}
-  catch(e){alert('No pude copiar el dato automáticamente.')}
-}
-function buildPaymentPanel(){
-  const bank={banco:'HSBC',titular:'HÉCTOR JESÚS CARRILLO VIDRIO',cuenta:'6453507182',clabe:'021320064535071827'};
-  if(window._hectorPaymentStatus==='pendiente_liga'){
-    return `<div class="card" style="margin-top:16px"><h3>Solicitud de liga registrada</h3><p>Tu cita quedó agendada. Nuestro equipo preparará la liga de pago y dará seguimiento.</p><div class="ok">Estado: pendiente de liga</div></div>`;
-  }
-  if(window._hectorPaymentStatus==='pendiente_transferencia'){
-    return `<div class="card" style="margin-top:16px"><h3>Transferencia bancaria</h3><p>Tu cita quedó agendada. Realiza tu transferencia con estos datos:</p>
-    <div class="payment-data">
-      <div><b>Banco</b><span>${bank.banco}</span></div>
-      <div><b>Titular</b><span>${bank.titular}</span></div>
-      <div><b>No. cuenta</b><span>${bank.cuenta}</span><button class="secondary" onclick="copyTextValue('${bank.cuenta}','Cuenta')">Copiar</button></div>
-      <div><b>CLABE</b><span>${bank.clabe}</span><button class="secondary" onclick="copyTextValue('${bank.clabe}','CLABE')">Copiar</button></div>
-    </div>
-    <p class="muted" style="margin-top:14px">Una vez realizada la transferencia, indica como referencia tu primer nombre y apellido. Si requieres factura, envíanos tu constancia de situación fiscal y el comprobante de pago por este medio.</p>
-    <div class="ok">Estado: transferencia pendiente de validación</div></div>`;
-  }
-  return `<div class="card" style="margin-top:16px"><h3>¿Cómo deseas continuar con el pago?</h3><p>Tu cita ya quedó registrada. Elige una opción para continuar.</p>
-  <div class="grid2"><button class="primary" onclick="requestPayment('liga')">Solicitar liga de pago</button><button class="secondary" onclick="requestPayment('transferencia')">Transferencia bancaria</button></div></div>`;
-}
-async function requestPayment(method){
-  const cfg=window.HECTOR_CONFIG||{};
-  const p=(window.state&&state.patient)||{};
-  const svc=(window.state&&(state.selectedService||state.servicio))||{};
-  const payload={action:'solicitar_pago',paciente_id:String(p.id||p.person_id||''),telefono:String(p.telefono||p.telephone2||p.telephone||''),email:String(p.email||''),servicio_id:String(svc.code||svc.id||svc.servicio_id||''),monto:Number(svc.promo||svc.price||svc.precio||svc.regular||0),metodo_pago:method};
-  try{
-    const r=await fetch(cfg.webhook,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-    const data=await r.json().catch(()=>({}));
-    if(!r.ok||data.ok===false)throw new Error('payment');
-    window._hectorPaymentStatus=data.estado_pago||(method==='liga'?'pendiente_liga':'pendiente_transferencia');
-    const mount=document.getElementById('paymentOptionsMount');
-    if(mount)mount.innerHTML=buildPaymentPanel();
-  }catch(e){alert('Tu cita sí quedó agendada, pero no fue posible registrar la forma de pago.')}
-}
-function mountPaymentOptions(){
-  const mount=document.getElementById('paymentOptionsMount');
-  if(mount)mount.innerHTML=buildPaymentPanel();
-}
-
 render();
-if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js?v=40');
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js?v=41');
 </script>
 </body>
 </html>
