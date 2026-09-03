@@ -204,12 +204,83 @@ async function findPatient(){
     const r=await core({action:'buscar_paciente',telefono:t});
     state.loading=false;
     state.patient=r.encontrado?r.paciente:null;
+    state.appointments=[];
+    state.appointmentsLoaded=false;
     render();
     if(!state.patient)toast('Paciente no encontrado');
   }catch(e){state.loading=false;render();toast('Error al buscar paciente')}
 }
 function pacientes(){return `<div class="space-y-4"><section><h2 class="text-2xl font-semibold">Pacientes</h2><p class="text-sm text-slate-500 mt-1">Búsqueda directa en Nimbo.</p></section>${patientSearchBox()}</div>`}
-function citas(){return `<div class="space-y-4"><section><h2 class="text-2xl font-semibold">Citas</h2><p class="text-sm text-slate-500 mt-1">Gestión conectada con Nimbo.</p></section>${patientSearchBox()}<section class="card rounded-3xl p-5"><span class="badge goldbg">Listar citas: siguiente rama n8n</span></section></div>`}
+function formatDateTimeMX(iso){
+  if(!iso)return {fecha:'—',hora:'—'};
+  const d=new Date(iso);
+  if(Number.isNaN(d.getTime()))return {fecha:iso,hora:''};
+  return {
+    fecha:new Intl.DateTimeFormat('es-MX',{weekday:'short',day:'numeric',month:'short',timeZone:'America/Mexico_City'}).format(d),
+    hora:new Intl.DateTimeFormat('es-MX',{hour:'numeric',minute:'2-digit',hour12:true,timeZone:'America/Mexico_City'}).format(d)
+  };
+}
+function whatsappConfirmUrl(c){
+  const raw=String(c.telefono||state.patient?.telefono||'').replace(/\D/g,'');
+  const tel=raw.length===10?'52'+raw:raw;
+  const f=formatDateTimeMX(c.starts_at);
+  const nombre=(c.paciente||state.patient?.nombre||state.patient?.first_name||'').trim();
+  const msg=`Hola${nombre?' '+nombre:''} 😊 Te contactamos del consultorio del Dr. Héctor Carrillo para confirmar tu cita de mañana ${f.fecha} a las ${f.hora}.${c.servicio?`\n\nServicio: ${c.servicio}`:''}\n\n¿Nos confirmas tu asistencia, por favor?`;
+  return `https://wa.me/${tel}?text=${encodeURIComponent(msg)}`;
+}
+async function loadAppointments(){
+  if(!state.patient?.id)return toast('Primero selecciona un paciente');
+  setLoading(true,'Consultando citas en Nimbo…');
+  try{
+    const r=await core({action:'listar_citas',paciente_id:String(state.patient.id)});
+    state.loading=false;
+    state.appointments=Array.isArray(r.citas)?r.citas:[];
+    state.appointmentsLoaded=true;
+    render();
+    if(!state.appointments.length)toast('No hay citas futuras para este paciente');
+  }catch(e){
+    state.loading=false;
+    state.appointments=[];
+    state.appointmentsLoaded=true;
+    render();
+    toast('No pude consultar las citas');
+  }
+}
+function appointmentCards(){
+  if(!state.patient)return `<div class="border border-dashed rounded-2xl p-5 text-sm text-slate-500">Busca un paciente para consultar sus citas.</div>`;
+  if(!state.appointmentsLoaded)return `<button onclick="loadAppointments()" class="btn rounded-2xl px-5 py-3 font-semibold">Consultar próximas citas</button>`;
+  if(!state.appointments.length)return `<div class="border border-dashed rounded-2xl p-5 text-sm text-slate-500">Este paciente no tiene próximas citas registradas.</div>`;
+  return `<div class="space-y-3">${state.appointments.map(c=>{
+    const f=formatDateTimeMX(c.starts_at);
+    return `<div class="border rounded-2xl p-4 bg-white">
+      <div class="flex flex-wrap justify-between gap-3">
+        <div>
+          <div class="font-semibold">${c.servicio||c.motivo||'Cita'}</div>
+          <div class="text-sm text-slate-600 mt-1">${f.fecha} · ${f.hora}</div>
+          ${c.status?`<div class="text-xs text-slate-400 mt-1">Estado: ${c.status}</div>`:''}
+        </div>
+        <span class="badge green h-fit">Nimbo</span>
+      </div>
+      <div class="grid sm:grid-cols-2 gap-2 mt-4">
+        <a href="${whatsappConfirmUrl(c)}" target="_blank" rel="noopener" class="border rounded-xl py-2 px-3 text-center text-sm font-medium">Confirmar por WhatsApp</a>
+        <button disabled class="border rounded-xl py-2 px-3 text-sm text-slate-400">Reprogramar / cancelar — siguiente paso</button>
+      </div>
+    </div>`;
+  }).join('')}</div>`;
+}
+function citas(){
+  return `<div class="space-y-4">
+    <section><h2 class="text-2xl font-semibold">Citas</h2><p class="text-sm text-slate-500 mt-1">Gestión conectada con Nimbo.</p></section>
+    ${patientSearchBox()}
+    <section class="card rounded-3xl p-5">
+      <div class="flex flex-wrap justify-between items-center gap-3">
+        <div><h3 class="font-semibold text-lg">Próximas citas</h3><p class="text-sm text-slate-500">Consulta las citas futuras del paciente seleccionado.</p></div>
+        ${state.patient?`<button onclick="loadAppointments()" class="border rounded-xl px-4 py-2 text-sm">Actualizar</button>`:''}
+      </div>
+      <div class="mt-4">${appointmentCards()}</div>
+    </section>
+  </div>`;
+}
 
 function addQuoteItem(code){
   const s=code?S.find(x=>x.code===code):S[0];
@@ -353,7 +424,7 @@ window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;installBa
 setTimeout(renderInstallBanner,900);
 
 render();
-if('serviceWorker' in navigator) navigator.serviceWorker.register('sw-admin.js');
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw-admin.js?v=24');
 </script>
 </body>
 </html>
