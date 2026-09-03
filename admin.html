@@ -268,10 +268,10 @@ function isTomorrowMX(iso){
 async function loadTomorrowAppointments(){
   setLoading(true,'Consultando citas de mañana…');
   try{
-    const r=await core({action:'listar_citas'});
+    const r=await core({action:'listar_citas_manana'});
     state.loading=false;
     const all=Array.isArray(r.citas)?r.citas:[];
-    state.tomorrowAppointments=all.filter(c=>isTomorrowMX(c.starts_at));
+    state.tomorrowAppointments=all;
     state.tomorrowLoaded=true;
     render();
     if(!state.tomorrowAppointments.length)toast('No hay citas para mañana');
@@ -487,7 +487,7 @@ window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;installBa
 setTimeout(renderInstallBanner,900);
 
 render();
-if('serviceWorker' in navigator) navigator.serviceWorker.register('sw-admin.js?v=25');
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw-admin.js?v=26');
 </script>
 </body>
 </html>
