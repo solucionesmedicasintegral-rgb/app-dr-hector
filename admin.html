@@ -168,6 +168,13 @@ function resumen(){
       <button onclick="go('cotizaciones')" class="card rounded-3xl p-5 text-left"><b>Nueva cotización</b><div class="text-sm text-slate-500 mt-1">Generar PDF desde Drive.</div></button>
       <button onclick="go('citas')" class="card rounded-3xl p-5 text-left"><b>Citas</b><div class="text-sm text-slate-500 mt-1">Gestión de agenda.</div></button>
     </div>
+    <section class="card rounded-3xl p-5">
+      <div class="flex flex-wrap justify-between items-center gap-3">
+        <div><h3 class="font-semibold text-lg">Confirmaciones de mañana</h3><p class="text-sm text-slate-500 mt-1">Citas de Nimbo listas para confirmar por WhatsApp.</p></div>
+        <button onclick="loadTomorrowAppointments()" class="border rounded-xl px-4 py-2 text-sm">Actualizar</button>
+      </div>
+      <div class="mt-4">${tomorrowCards()}</div>
+    </section>
   </div>`;
 }
 
@@ -223,10 +230,7 @@ function formatDateTimeMX(iso){
 function whatsappConfirmUrl(c){
   const raw=String(c.telefono||state.patient?.telefono||'').replace(/\D/g,'');
   const tel=raw.length===10?'52'+raw:raw;
-  const f=formatDateTimeMX(c.starts_at);
-  const nombre=(c.paciente||state.patient?.nombre||state.patient?.first_name||'').trim();
-  const msg=`Hola${nombre?' '+nombre:''} 😊 Te contactamos del consultorio del Dr. Héctor Carrillo para confirmar tu cita de mañana ${f.fecha} a las ${f.hora}.${c.servicio?`\n\nServicio: ${c.servicio}`:''}\n\n¿Nos confirmas tu asistencia, por favor?`;
-  return `https://wa.me/${tel}?text=${encodeURIComponent(msg)}`;
+  return `https://wa.me/${tel}?text=${encodeURIComponent(buildConfirmMessage(c))}`;
 }
 async function loadAppointments(){
   if(!state.patient?.id)return toast('Primero selecciona un paciente');
@@ -245,6 +249,65 @@ async function loadAppointments(){
     render();
     toast('No pude consultar las citas');
   }
+}
+
+function buildConfirmMessage(c){
+  const f=formatDateTimeMX(c.starts_at);
+  const nombre=(c.paciente||'').trim();
+  return `Hola${nombre?' '+nombre:''} 😊 Te contactamos del consultorio del Dr. Héctor Carrillo para confirmar tu cita de mañana ${f.fecha} a las ${f.hora}.${c.servicio?`\n\nServicio: ${c.servicio}`:''}\n\n¿Nos confirmas tu asistencia, por favor?`;
+}
+function isTomorrowMX(iso){
+  if(!iso)return false;
+  const d=new Date(iso);
+  if(Number.isNaN(d.getTime()))return false;
+  const key=x=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Mexico_City',year:'numeric',month:'2-digit',day:'2-digit'}).format(x);
+  const now=new Date();
+  const tomorrow=new Date(now.getTime()+24*60*60*1000);
+  return key(d)===key(tomorrow);
+}
+async function loadTomorrowAppointments(){
+  setLoading(true,'Consultando citas de mañana…');
+  try{
+    const r=await core({action:'listar_citas'});
+    state.loading=false;
+    const all=Array.isArray(r.citas)?r.citas:[];
+    state.tomorrowAppointments=all.filter(c=>isTomorrowMX(c.starts_at));
+    state.tomorrowLoaded=true;
+    render();
+    if(!state.tomorrowAppointments.length)toast('No hay citas para mañana');
+  }catch(e){
+    state.loading=false;
+    state.tomorrowAppointments=[];
+    state.tomorrowLoaded=true;
+    render();
+    toast('No pude consultar las citas de mañana');
+  }
+}
+function tomorrowCards(){
+  if(!state.tomorrowLoaded)return `<button onclick="loadTomorrowAppointments()" class="btn rounded-2xl px-5 py-3 font-semibold">Cargar citas de mañana</button>`;
+  if(!state.tomorrowAppointments.length)return `<div class="border border-dashed rounded-2xl p-5 text-sm text-slate-500">No hay citas programadas para mañana.</div>`;
+  return `<div class="space-y-3">${state.tomorrowAppointments.map(c=>{
+    const f=formatDateTimeMX(c.starts_at);
+    return `<div class="border rounded-2xl p-4 bg-white">
+      <div class="flex flex-wrap justify-between gap-3">
+        <div>
+          <div class="font-semibold">${c.paciente||'Paciente'}</div>
+          <div class="text-sm text-slate-600 mt-1">${f.fecha} · ${f.hora}</div>
+          <div class="text-sm text-slate-500 mt-1">${c.servicio||c.motivo||'Cita'}</div>
+          ${c.telefono?`<div class="text-xs text-slate-400 mt-1">${c.telefono}</div>`:''}
+        </div>
+        <span class="badge goldbg h-fit">Mañana</span>
+      </div>
+      <div class="grid sm:grid-cols-2 gap-2 mt-4">
+        <a href="${whatsappConfirmUrl(c)}" target="_blank" rel="noopener" class="btn rounded-xl py-2.5 px-3 text-center text-sm font-semibold">Confirmar por WhatsApp</a>
+        <button onclick='copyConfirmMessage(${JSON.stringify(c)})' class="border rounded-xl py-2.5 px-3 text-sm">Copiar mensaje</button>
+      </div>
+    </div>`;
+  }).join('')}</div>`;
+}
+async function copyConfirmMessage(c){
+  try{await navigator.clipboard.writeText(buildConfirmMessage(c));toast('Mensaje copiado')}
+  catch(e){toast('No pude copiar el mensaje')}
 }
 function appointmentCards(){
   if(!state.patient)return `<div class="border border-dashed rounded-2xl p-5 text-sm text-slate-500">Busca un paciente para consultar sus citas.</div>`;
@@ -424,7 +487,7 @@ window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;installBa
 setTimeout(renderInstallBanner,900);
 
 render();
-if('serviceWorker' in navigator) navigator.serviceWorker.register('sw-admin.js?v=24');
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw-admin.js?v=25');
 </script>
 </body>
 </html>
