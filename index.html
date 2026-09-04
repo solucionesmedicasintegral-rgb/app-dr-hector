@@ -73,7 +73,10 @@ let state={
   paymentStatus:null,
   paymentMethod:null,
   appointments:[],
-  appointmentsLoaded:false
+  appointmentsLoaded:false,
+  products:[],
+  productsLoaded:false,
+  productSearch:''
 };
 
 const money=n=>n==null?'—':new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN',maximumFractionDigits:0}).format(n);
@@ -148,6 +151,7 @@ function render(){
   else if(state.view==='home')h=home();
   else if(state.view==='services')h=services();
   else if(state.view==='appointments')h=appointments();
+  else if(state.view==='products')h=products();
   else if(state.view==='book')h=book();
   else if(state.view==='success')h=success();
   document.querySelector('#app').innerHTML=shell(h);
@@ -176,6 +180,9 @@ async function findPatient(){
       state.patient=r.paciente;
       state.appointments=[];
       state.appointmentsLoaded=false;
+      state.products=[];
+      state.productsLoaded=false;
+      state.productSearch='';
       state.view='home';
     }else{
       state.view='register';
@@ -221,6 +228,9 @@ async function createPatient(){
     const r=await api(b);
     state.patient=r.paciente;
     state.loading=false;
+    state.products=[];
+    state.productsLoaded=false;
+    state.productSearch='';
     state.view='home';
     render();toast('Expediente creado');
   }catch(e){
@@ -248,9 +258,9 @@ function home(){
       <div class="font-semibold text-lg">Ver servicios y precios</div>
       <div class="text-sm text-stone-500">Consulta el tarifario disponible.</div>
     </button>
-    <button onclick="toast('Muy pronto: medicamentos y suplementos')" class="card rounded-3xl p-5 text-left">
-      <div class="font-semibold text-lg">Medicamentos y suplementos</div>
-      <div class="text-sm text-stone-500">Próximamente conectado al catálogo de Nimbo.</div>
+    <button onclick="openProducts()" class="card rounded-3xl p-5 text-left">
+      <div class="font-semibold text-lg">Productos y servicios</div>
+      <div class="text-sm text-stone-500">Consulta el catálogo activo conectado con Nimbo.</div>
     </button>
   </div>`;
 }
@@ -376,6 +386,117 @@ function appointments(){
         </div>
       </article>`;
     }).join('')}
+  </div>`;
+}
+
+
+function productWhatsAppUrl(p){
+  const tel='5213328489220';
+  const nombre=state.patient?.nombre ||
+    [state.patient?.first_name,state.patient?.last_name].filter(Boolean).join(' ') ||
+    'paciente';
+
+  const msg=`Hola, soy ${nombre}. Me interesa solicitar información sobre ${p.nombre}${p.precio?` con precio de ${money(p.precio)}`:''}. ¿Me pueden apoyar, por favor?`;
+  return `https://wa.me/${tel}?text=${encodeURIComponent(msg)}`;
+}
+
+async function openProducts(){
+  state.view='products';
+  render();
+
+  if(!state.productsLoaded){
+    await loadProducts();
+  }
+}
+
+async function loadProducts(){
+  setLoading(true,'Cargando catálogo de Nimbo…');
+
+  try{
+    const r=await api({action:'listar_productos'});
+
+    state.loading=false;
+    state.products=Array.isArray(r.productos)?r.productos:[];
+    state.productsLoaded=true;
+    render();
+
+    if(!state.products.length){
+      toast('No encontré productos activos');
+    }
+  }catch(e){
+    state.loading=false;
+    state.productsLoaded=true;
+    state.products=[];
+    render();
+    toast('No pude cargar el catálogo');
+  }
+}
+
+function setProductSearch(v){
+  state.productSearch=String(v||'');
+  render();
+  const el=document.querySelector('#productSearch');
+  if(el){
+    el.focus();
+    try{el.setSelectionRange(el.value.length,el.value.length)}catch(e){}
+  }
+}
+
+function products(){
+  if(!state.productsLoaded){
+    return `<section class="card rounded-3xl p-6">
+      <button onclick="go('home')" class="text-sm gold">← Inicio</button>
+      <h2 class="text-2xl font-semibold mt-3">Productos y servicios</h2>
+      <p class="text-stone-500 mt-2">Consultando el catálogo activo de Nimbo.</p>
+    </section>`;
+  }
+
+  const q=state.productSearch.trim().toLowerCase();
+  const rows=state.products.filter(p=>{
+    if(!q)return true;
+    return String(p.nombre||'').toLowerCase().includes(q);
+  });
+
+  return `<div class="space-y-4">
+    <div>
+      <button onclick="go('home')" class="text-sm gold">← Inicio</button>
+      <h2 class="text-2xl font-semibold mt-2">Productos y servicios</h2>
+      <p class="text-sm text-stone-500 mt-1">Catálogo activo conectado directamente con Nimbo.</p>
+    </div>
+
+    <section class="card rounded-3xl p-4">
+      <div class="flex gap-2">
+        <input id="productSearch"
+          value="${state.productSearch.replace(/"/g,'&quot;')}"
+          oninput="setProductSearch(this.value)"
+          class="w-full border rounded-2xl px-4 py-3"
+          placeholder="Buscar producto o servicio">
+        <button onclick="loadProducts()" class="border rounded-2xl px-4 py-3 text-sm font-semibold">Actualizar</button>
+      </div>
+      <div class="text-xs text-stone-400 mt-2">${rows.length} de ${state.products.length} conceptos activos</div>
+    </section>
+
+    ${rows.length?rows.map(p=>`
+      <article class="card rounded-2xl p-4">
+        <div class="flex justify-between gap-4">
+          <div class="min-w-0">
+            <h3 class="font-semibold">${p.nombre||'Concepto'}</h3>
+            ${p.sku?`<div class="text-xs text-stone-400 mt-1">SKU: ${p.sku}</div>`:''}
+            ${p.stockable?`<div class="text-xs text-stone-400 mt-1">Inventario: ${p.stock<0?'Disponible':p.stock}</div>`:''}
+          </div>
+          <div class="font-semibold shrink-0">${money(p.precio)}</div>
+        </div>
+
+        <a href="${productWhatsAppUrl(p)}"
+           target="_blank"
+           rel="noopener"
+           class="btn block w-full rounded-2xl py-3 mt-4 text-center font-semibold">
+          Solicitar por WhatsApp
+        </a>
+      </article>
+    `).join(''):`<section class="card rounded-3xl p-6 text-center text-stone-500">
+      No encontramos resultados con esa búsqueda.
+    </section>`}
   </div>`;
 }
 
@@ -789,7 +910,7 @@ window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;installBa
 setTimeout(renderInstallBanner,900);
 
 render();
-if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js?v=43');
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js?v=44');
 </script>
 </body>
 </html>
