@@ -53,7 +53,10 @@ let state = {
   quoteItems:[],
   quoteResult:null,
   promoDate:'',
-  pin:''
+  pin:'',
+  products:[],
+  productsLoaded:false,
+  productSearch:''
 };
 
 const money = n => new Intl.NumberFormat('es-MX',{
@@ -540,10 +543,21 @@ function cotizaciones(){
       </section>
     </div>
     <section class="card rounded-3xl p-5">
-      <h3 class="font-semibold">Tarifario</h3>
+      <h3 class="font-semibold">Tarifario base de la APP</h3>
       <div class="grid md:grid-cols-2 xl:grid-cols-3 gap-3 mt-4">
         ${S.map(s=>`<button onclick="addQuoteItem('${s.code}')" class="border rounded-2xl p-3 text-left"><div class="font-medium">${s.name}</div><div class="gold text-sm mt-1">${money(s.promo??s.regular)}</div></button>`).join('')}
       </div>
+    </section>
+
+    <section class="card rounded-3xl p-5">
+      <div class="flex flex-wrap justify-between items-center gap-3">
+        <div>
+          <h3 class="font-semibold">Catálogo completo de Nimbo</h3>
+          <p class="text-sm text-slate-500 mt-1">Busca conceptos que no estén en el tarifario base, como FIV, biopsias, procedimientos o medicamentos.</p>
+        </div>
+        ${state.productsLoaded?`<button onclick="loadProducts()" class="border rounded-xl px-4 py-2 text-sm">Actualizar</button>`:''}
+      </div>
+      <div class="mt-4">${nimboCatalogForQuotes()}</div>
     </section>
   </div>`;
 }
@@ -569,7 +583,8 @@ async function generateQuote(){
       incluye:x.incluye||'',
       precio_lista:Number(x.precio_lista||x.precio||0),
       precio_promo:Number(x.precio_promo||0),
-      precio:effectiveQuotePrice(x)
+      precio:effectiveQuotePrice(x),
+      nimbo_item_id:x.nimbo_item_id||null
     })),
     total:quoteTotal()
   };
@@ -582,11 +597,163 @@ async function generateQuote(){
   }catch(e){state.loading=false;render();toast('No pude conectar con cotizaciones')}
 }
 
+
+async function loadProducts(){
+  setLoading(true,'Cargando catálogo de Nimbo…');
+  try{
+    const r=await core({action:'listar_productos'});
+    state.loading=false;
+    state.products=Array.isArray(r.productos)?r.productos:[];
+    state.productsLoaded=true;
+    render();
+    if(!state.products.length)toast('No encontré conceptos activos');
+  }catch(e){
+    state.loading=false;
+    state.products=[];
+    state.productsLoaded=true;
+    render();
+    toast('No pude cargar el catálogo de Nimbo');
+  }
+}
+
+function setAdminProductSearch(v){
+  state.productSearch=String(v||'');
+  render();
+  const el=document.querySelector('#adminProductSearch');
+  if(el){
+    el.focus();
+    try{el.setSelectionRange(el.value.length,el.value.length)}catch(e){}
+  }
+}
+
+function filteredProducts(){
+  const q=state.productSearch.trim().toLowerCase();
+  if(!q)return state.products;
+  return state.products.filter(p=>String(p.nombre||'').toLowerCase().includes(q));
+}
+
+function addNimboItemToQuote(id){
+  const p=state.products.find(x=>String(x.id)===String(id));
+  if(!p)return toast('No encontré el concepto');
+
+  state.quoteItems.push({
+    concepto:p.nombre||'Concepto Nimbo',
+    descripcion:'Concepto tomado del catálogo de Nimbo',
+    incluye:'',
+    precio_lista:Number(p.precio||0),
+    precio_promo:0,
+    precio:Number(p.precio||0),
+    nimbo_item_id:p.id
+  });
+
+  state.quoteResult=null;
+  state.view='cotizaciones';
+  render();
+  toast('Concepto agregado a la cotización');
+}
+
+function nimboCatalogForQuotes(){
+  if(!state.productsLoaded){
+    return `<div class="border border-dashed rounded-2xl p-5 text-sm text-slate-500">
+      <div>Catálogo Nimbo aún no cargado.</div>
+      <button onclick="loadProducts()" class="btn rounded-xl px-4 py-2 mt-3">Cargar catálogo</button>
+    </div>`;
+  }
+
+  const rows=filteredProducts().slice(0,80);
+
+  return `<div class="space-y-3">
+    <div class="flex flex-col sm:flex-row gap-2">
+      <input id="adminProductSearch"
+        value="${state.productSearch.replace(/"/g,'&quot;')}"
+        oninput="setAdminProductSearch(this.value)"
+        class="input"
+        placeholder="Buscar FIV, biopsia, DIU, medicamento…">
+      <button onclick="loadProducts()" class="border rounded-xl px-4 py-2 text-sm">Actualizar</button>
+    </div>
+
+    <div class="text-xs text-slate-400">${rows.length} resultados visibles</div>
+
+    <div class="grid md:grid-cols-2 xl:grid-cols-3 gap-3 max-h-[520px] overflow-y-auto pr-1">
+      ${rows.map(p=>`
+        <div class="border rounded-2xl p-3 bg-white">
+          <div class="flex justify-between gap-3">
+            <div class="min-w-0">
+              <div class="font-medium">${p.nombre||'Concepto'}</div>
+              ${p.sku?`<div class="text-xs text-slate-400 mt-1">SKU ${p.sku}</div>`:''}
+              ${p.stockable?`<div class="text-xs text-slate-400 mt-1">Stock: ${p.stock<0?'Disponible':p.stock}</div>`:''}
+            </div>
+            <div class="gold font-semibold shrink-0">${money(p.precio)}</div>
+          </div>
+          <button onclick="addNimboItemToQuote('${p.id}')" class="w-full border rounded-xl py-2 mt-3 text-sm font-medium">Agregar a cotización</button>
+        </div>
+      `).join('')}
+    </div>
+  </div>`;
+}
+
 function pedidos(){return `<div class="space-y-4"><h2 class="text-2xl font-semibold">Pedidos</h2><section class="card rounded-3xl p-5"><span class="badge gray">Siguiente fase</span></section></div>`}
-function productos(){return `<div class="space-y-4"><h2 class="text-2xl font-semibold">Productos</h2><section class="card rounded-3xl p-5"><span class="badge gray">Siguiente fase</span></section></div>`}
+function productos(){
+  const rows=filteredProducts();
+
+  return `<div class="space-y-4">
+    <section class="flex flex-wrap justify-between gap-3 items-center">
+      <div>
+        <h2 class="text-2xl font-semibold">Productos y servicios</h2>
+        <p class="text-sm text-slate-500 mt-1">Catálogo activo conectado directamente con Nimbo.</p>
+      </div>
+      <button onclick="loadProducts()" class="btn rounded-xl px-4 py-2 text-sm">${state.productsLoaded?'Actualizar':'Cargar catálogo'}</button>
+    </section>
+
+    <section class="card rounded-3xl p-5">
+      ${state.productsLoaded?`
+        <div class="flex flex-col sm:flex-row gap-2">
+          <input id="adminProductSearch"
+            value="${state.productSearch.replace(/"/g,'&quot;')}"
+            oninput="setAdminProductSearch(this.value)"
+            class="input"
+            placeholder="Buscar producto o servicio">
+          <div class="badge h-fit self-center">${rows.length} / ${state.products.length}</div>
+        </div>
+
+        <div class="grid md:grid-cols-2 xl:grid-cols-3 gap-3 mt-4">
+          ${rows.map(p=>`
+            <article class="border rounded-2xl p-4 bg-white">
+              <div class="flex justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="font-semibold">${p.nombre||'Concepto'}</div>
+                  <div class="text-xs text-slate-400 mt-1">Nimbo ID ${p.id}</div>
+                  ${p.sku?`<div class="text-xs text-slate-400 mt-1">SKU ${p.sku}</div>`:''}
+                  ${p.stockable?`<div class="text-xs text-slate-400 mt-1">Stock: ${p.stock<0?'Disponible':p.stock}</div>`:''}
+                </div>
+                <div class="gold font-semibold shrink-0">${money(p.precio)}</div>
+              </div>
+              <button onclick="addNimboItemToQuote('${p.id}')" class="w-full border rounded-xl py-2 mt-4 text-sm font-medium">Agregar a cotización</button>
+            </article>
+          `).join('')}
+        </div>
+      `:`<div class="border border-dashed rounded-2xl p-6 text-center">
+        <div class="font-medium">Catálogo de Nimbo</div>
+        <div class="text-sm text-slate-500 mt-1">Carga los productos, medicamentos y conceptos facturables activos.</div>
+        <button onclick="loadProducts()" class="btn rounded-xl px-5 py-3 mt-4">Cargar catálogo</button>
+      </div>`}
+    </section>
+  </div>`;
+}
 function config(){return `<div class="space-y-4"><h2 class="text-2xl font-semibold">Configuración</h2><section class="card rounded-3xl p-5"><div class="text-sm"><div class="text-slate-500">Pago en línea</div><span class="badge gray">Pendiente Mercado Pago / GETNET</span></div></section></div>`}
 
-function logout(){state.authorized=false;state.pin='';state.patient=null;state.quoteItems=[];state.quoteResult=null;state.view='resumen';render()}
+function logout(){
+  state.authorized=false;
+  state.pin='';
+  state.patient=null;
+  state.quoteItems=[];
+  state.quoteResult=null;
+  state.products=[];
+  state.productsLoaded=false;
+  state.productSearch='';
+  state.view='resumen';
+  render();
+}
 function go(v){state.view=v;render()}
 function render(){document.querySelector('#root').innerHTML=state.authorized?shell():login()}
 
@@ -626,7 +793,7 @@ window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;installBa
 setTimeout(renderInstallBanner,900);
 
 render();
-if('serviceWorker' in navigator) navigator.serviceWorker.register('sw-admin.js?v=28');
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw-admin.js?v=29');
 </script>
 </body>
 </html>
