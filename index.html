@@ -71,7 +71,9 @@ let state={
   loadingText:'',
   bookingResult:null,
   paymentStatus:null,
-  paymentMethod:null
+  paymentMethod:null,
+  appointments:[],
+  appointmentsLoaded:false
 };
 
 const money=n=>n==null?'—':new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN',maximumFractionDigits:0}).format(n);
@@ -130,8 +132,9 @@ function shell(content){
 
 function nav(){
   return `<nav class="fixed bottom-0 inset-x-0 bg-white border-t border-stone-200 z-40">
-    <div class="max-w-xl mx-auto grid grid-cols-3 py-2">
+    <div class="max-w-xl mx-auto grid grid-cols-4 py-2">
       <button class="navbtn ${state.view==='home'?'active':''}" onclick="go('home')">⌂<span class="block text-xs">Inicio</span></button>
+      <button class="navbtn ${state.view==='appointments'?'active':''}" onclick="openAppointments()">▣<span class="block text-xs">Mis citas</span></button>
       <button class="navbtn ${state.view==='book'?'active':''}" onclick="go('book')">＋<span class="block text-xs">Agendar</span></button>
       <button class="navbtn ${state.view==='services'?'active':''}" onclick="go('services')">♡<span class="block text-xs">Servicios</span></button>
     </div>
@@ -144,6 +147,7 @@ function render(){
   else if(state.view==='register')h=register();
   else if(state.view==='home')h=home();
   else if(state.view==='services')h=services();
+  else if(state.view==='appointments')h=appointments();
   else if(state.view==='book')h=book();
   else if(state.view==='success')h=success();
   document.querySelector('#app').innerHTML=shell(h);
@@ -170,6 +174,8 @@ async function findPatient(){
     state.loading=false;
     if(r.encontrado){
       state.patient=r.paciente;
+      state.appointments=[];
+      state.appointmentsLoaded=false;
       state.view='home';
     }else{
       state.view='register';
@@ -234,10 +240,142 @@ function home(){
       <div class="text-2xl font-semibold mt-1">Agendar una cita</div>
       <div class="opacity-70 text-sm mt-2">Consulta disponibilidad real del Dr. Héctor.</div>
     </button>
+    <button onclick="openAppointments()" class="card rounded-3xl p-5 text-left">
+      <div class="font-semibold text-lg">Mis citas</div>
+      <div class="text-sm text-stone-500">Consulta tus próximas citas registradas en Nimbo.</div>
+    </button>
     <button onclick="go('services')" class="card rounded-3xl p-5 text-left">
       <div class="font-semibold text-lg">Ver servicios y precios</div>
       <div class="text-sm text-stone-500">Consulta el tarifario disponible.</div>
     </button>
+    <button onclick="toast('Muy pronto: medicamentos y suplementos')" class="card rounded-3xl p-5 text-left">
+      <div class="font-semibold text-lg">Medicamentos y suplementos</div>
+      <div class="text-sm text-stone-500">Próximamente conectado al catálogo de Nimbo.</div>
+    </button>
+  </div>`;
+}
+
+
+function patientId(){
+  return String(
+    state.patient?.id ||
+    state.patient?.person_id ||
+    state.patient?.patient_id ||
+    ''
+  );
+}
+
+function formatAppointmentDate(iso){
+  try{
+    const d=new Date(iso);
+    return {
+      fecha:new Intl.DateTimeFormat('es-MX',{
+        weekday:'short',day:'numeric',month:'short',
+        timeZone:'America/Mexico_City'
+      }).format(d),
+      hora:new Intl.DateTimeFormat('es-MX',{
+        hour:'numeric',minute:'2-digit',
+        timeZone:'America/Mexico_City'
+      }).format(d)
+    };
+  }catch(e){
+    return {fecha:'',hora:''};
+  }
+}
+
+function appointmentWhatsAppUrl(c){
+  const tel='5213328489220';
+  const f=formatAppointmentDate(c.starts_at);
+  const nombre=state.patient?.nombre ||
+    [state.patient?.first_name,state.patient?.last_name].filter(Boolean).join(' ') ||
+    'paciente';
+
+  const msg=`Hola, soy ${nombre}. Me comunico por mi cita con el Dr. Héctor Carrillo del ${f.fecha} a las ${f.hora}${c.motivo?` (${c.motivo})`:''}.`;
+  return `https://wa.me/${tel}?text=${encodeURIComponent(msg)}`;
+}
+
+async function openAppointments(){
+  state.view='appointments';
+  render();
+  await loadAppointments();
+}
+
+async function loadAppointments(){
+  const id=patientId();
+  if(!id){
+    toast('No pude identificar tu expediente');
+    return;
+  }
+
+  setLoading(true,'Consultando tus citas…');
+
+  try{
+    const r=await api({
+      action:'listar_citas',
+      paciente_id:id
+    });
+
+    state.loading=false;
+    state.appointments=Array.isArray(r.citas)?r.citas:[];
+    state.appointmentsLoaded=true;
+    render();
+  }catch(e){
+    state.loading=false;
+    state.appointmentsLoaded=true;
+    state.appointments=[];
+    render();
+    toast('No pude consultar tus citas');
+  }
+}
+
+function appointments(){
+  if(!state.appointmentsLoaded){
+    return `<section class="card rounded-3xl p-6">
+      <button onclick="go('home')" class="text-sm gold">← Inicio</button>
+      <h2 class="text-2xl font-semibold mt-3">Mis citas</h2>
+      <p class="text-stone-500 mt-2">Consultando tus próximas citas registradas en Nimbo.</p>
+    </section>`;
+  }
+
+  if(!state.appointments.length){
+    return `<section class="card rounded-3xl p-6">
+      <button onclick="go('home')" class="text-sm gold">← Inicio</button>
+      <h2 class="text-2xl font-semibold mt-3">Mis citas</h2>
+      <p class="text-stone-500 mt-2">No tienes próximas citas registradas.</p>
+      <button onclick="go('book')" class="btn w-full rounded-2xl py-4 mt-5 font-semibold">Agendar una cita</button>
+      <button onclick="loadAppointments()" class="w-full border rounded-2xl py-3 mt-3">Actualizar</button>
+    </section>`;
+  }
+
+  return `<div class="space-y-4">
+    <div class="flex items-center justify-between gap-3">
+      <div>
+        <h2 class="text-2xl font-semibold">Mis citas</h2>
+        <p class="text-sm text-stone-500">Próximas citas registradas en Nimbo.</p>
+      </div>
+      <button onclick="loadAppointments()" class="border rounded-xl px-3 py-2 text-sm">Actualizar</button>
+    </div>
+
+    ${state.appointments.map(c=>{
+      const f=formatAppointmentDate(c.starts_at);
+      return `<article class="card rounded-3xl p-5">
+        <div class="flex justify-between gap-3">
+          <div>
+            <div class="text-xs gold font-semibold">PRÓXIMA CITA</div>
+            <h3 class="font-semibold text-lg mt-1">${c.motivo || c.servicio || 'Consulta'}</h3>
+            <div class="text-sm text-stone-600 mt-2">${f.fecha} · ${f.hora}</div>
+          </div>
+          <span class="text-xs bg-[#edf3e6] text-[#294317] px-3 py-1 rounded-full h-fit">Nimbo</span>
+        </div>
+
+        <div class="grid gap-2 mt-4">
+          <a href="${appointmentWhatsAppUrl(c)}" target="_blank" rel="noopener"
+             class="btn rounded-2xl py-3 text-center font-semibold">
+             Contactar por WhatsApp
+          </a>
+        </div>
+      </article>`;
+    }).join('')}
   </div>`;
 }
 
@@ -447,6 +585,8 @@ async function confirmBooking(){
       slot:x,
       response:r
     };
+    state.appointments=[];
+    state.appointmentsLoaded=false;
     state.view='success';
     render();
   }catch(e){
@@ -649,7 +789,7 @@ window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;installBa
 setTimeout(renderInstallBanner,900);
 
 render();
-if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js?v=42');
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js?v=43');
 </script>
 </body>
 </html>
