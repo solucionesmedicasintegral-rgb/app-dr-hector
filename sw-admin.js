@@ -1,1 +1,0 @@
-const C='hector-admin-v1';self.addEventListener('install',e=>e.waitUntil(caches.open(C).then(c=>c.addAll(['admin.html','config.js','services.js','assets/logo-admin.png']))));self.addEventListener('fetch',e=>e.respondWith(fetch(e.request).catch(()=>caches.match(e.request))));
