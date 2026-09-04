@@ -283,6 +283,46 @@ async function loadTomorrowAppointments(){
     toast('No pude consultar las citas de mañana');
   }
 }
+
+function paymentStoreKey(c){
+  return `hector_pago_${c.id||c.cita_id||c.person_id||''}_${c.starts_at||''}`;
+}
+function getPaymentState(c){
+  try{return localStorage.getItem(paymentStoreKey(c)) || 'pendiente';}
+  catch(e){return 'pendiente';}
+}
+function paymentBadge(c){
+  const s=getPaymentState(c);
+  if(s==='pagado') return `<span class="badge green">Pagado</span>`;
+  if(s==='sin_pago') return `<span class="badge gray">Sin pago</span>`;
+  if(s==='pendiente_liga') return `<span class="badge goldbg">Pendiente liga</span>`;
+  if(s==='pendiente_transferencia') return `<span class="badge goldbg">Transferencia pendiente</span>`;
+  return `<span class="badge goldbg">Pago pendiente</span>`;
+}
+async function markPaid(c){
+  if(!confirm('¿Confirmas que ya validaste el pago de esta cita?'))return;
+  setLoading(true,'Marcando pago…');
+  try{
+    const r=await core({
+      action:'solicitar_pago',
+      paciente_id:String(c.person_id||''),
+      telefono:String(c.telefono||''),
+      metodo_pago:'pagado',
+      monto:Number(c.monto||0),
+      fecha:String(c.starts_at||'')
+    });
+    state.loading=false;
+    if(r.ok===false){render();toast('No pude registrar el estado');return;}
+    try{localStorage.setItem(paymentStoreKey(c),'pagado')}catch(e){}
+    render();toast('Pago marcado como validado');
+  }catch(e){state.loading=false;render();toast('No pude registrar el pago');}
+}
+function setPendingType(c,type){
+  try{localStorage.setItem(paymentStoreKey(c),type)}catch(e){}
+  render();
+}
+
+
 function tomorrowCards(){
   if(!state.tomorrowLoaded)return `<button onclick="loadTomorrowAppointments()" class="btn rounded-2xl px-5 py-3 font-semibold">Cargar citas de mañana</button>`;
   if(!state.tomorrowAppointments.length)return `<div class="border border-dashed rounded-2xl p-5 text-sm text-slate-500">No hay citas programadas para mañana.</div>`;
@@ -296,15 +336,25 @@ function tomorrowCards(){
           <div class="text-sm text-slate-500 mt-1">${c.servicio||c.motivo||'Cita'}</div>
           ${c.telefono?`<div class="text-xs text-slate-400 mt-1">${c.telefono}</div>`:''}
         </div>
-        <span class="badge goldbg h-fit">Mañana</span>
+        <div class="flex gap-2 items-start flex-wrap">
+          <span class="badge goldbg">Mañana</span>
+          ${paymentBadge(c)}
+        </div>
       </div>
-      <div class="grid sm:grid-cols-2 gap-2 mt-4">
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 mt-4">
         <a href="${whatsappConfirmUrl(c)}" target="_blank" rel="noopener" class="btn rounded-xl py-2.5 px-3 text-center text-sm font-semibold">Confirmar por WhatsApp</a>
+        <button onclick='markPaid(${JSON.stringify(c)})' class="border border-emerald-300 rounded-xl py-2.5 px-3 text-sm font-semibold text-emerald-700">Marcar como pagado</button>
         <button onclick='copyConfirmMessage(${JSON.stringify(c)})' class="border rounded-xl py-2.5 px-3 text-sm">Copiar mensaje</button>
+      </div>
+      <div class="flex gap-2 flex-wrap mt-3">
+        <button onclick='setPendingType(${JSON.stringify(c)},"pendiente_transferencia")' class="text-xs border rounded-lg px-2.5 py-1.5">Transferencia pendiente</button>
+        <button onclick='setPendingType(${JSON.stringify(c)},"pendiente_liga")' class="text-xs border rounded-lg px-2.5 py-1.5">Pendiente liga</button>
+        <button onclick='setPendingType(${JSON.stringify(c)},"sin_pago")' class="text-xs border rounded-lg px-2.5 py-1.5">Sin pago</button>
       </div>
     </div>`;
   }).join('')}</div>`;
 }
+
 async function copyConfirmMessage(c){
   try{await navigator.clipboard.writeText(buildConfirmMessage(c));toast('Mensaje copiado')}
   catch(e){toast('No pude copiar el mensaje')}
@@ -487,7 +537,7 @@ window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;installBa
 setTimeout(renderInstallBanner,900);
 
 render();
-if('serviceWorker' in navigator) navigator.serviceWorker.register('sw-admin.js?v=26');
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw-admin.js?v=27');
 </script>
 </body>
 </html>
