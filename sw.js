@@ -1,0 +1,24 @@
+const C='hector-pwa-v45';
+self.addEventListener('install',e=>{
+  self.skipWaiting();
+  e.waitUntil(caches.open(C).then(c=>c.addAll([
+    './',
+    './index.html',
+    './config.js',
+    './services.js',
+    './manifest.json',
+    './assets/logo-paciente.png',
+    './assets/icon-paciente-192.png',
+    './assets/icon-paciente-512.png',
+    './assets/apple-touch-icon.png'
+  ])));
+});
+self.addEventListener('activate',e=>{
+  e.waitUntil(
+    caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==C).map(k=>caches.delete(k))))
+      .then(()=>self.clients.claim())
+  );
+});
+self.addEventListener('fetch',e=>{
+  e.respondWith(fetch(e.request).catch(()=>caches.match(e.request)));
+});

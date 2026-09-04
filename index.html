@@ -1,0 +1,917 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#263514">
+<link rel="manifest" href="manifest.json?v=45">
+<link rel="icon" type="image/png" sizes="192x192" href="assets/icon-paciente-192.png?v=45">
+<link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=45">
+<title>Mi Salud · Dr. Héctor</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+:root{
+  --olive:#263514;
+  --olive2:#35471d;
+  --gold:#d7a72c;
+  --gold2:#efc65a;
+  --cream:#f7f4ec;
+}
+*{box-sizing:border-box}
+body{background:var(--cream);font-family:Inter,system-ui,sans-serif;color:#242424}
+.brand{background:linear-gradient(145deg,var(--olive),var(--olive2))}
+.gold{color:var(--gold)}
+.btn{background:var(--olive);color:white;transition:.2s}
+.btn:hover{background:#1d2a0e}
+.btn:disabled{opacity:.55;cursor:not-allowed}
+.card{background:white;border:1px solid #e8e3d8;box-shadow:0 8px 24px #26351412}
+.navbtn.active{color:var(--gold)}
+.calendar-day{min-height:52px;border:1px solid #ece8df;background:white;border-radius:14px;position:relative}
+.calendar-day.has-slots{border-color:#d9c58a;background:#fffdf5}
+.calendar-day.has-slots::after{content:"";width:6px;height:6px;border-radius:999px;background:var(--gold);position:absolute;bottom:6px;left:50%;transform:translateX(-50%)}
+.calendar-day.selected{background:var(--olive);color:white;border-color:var(--olive)}
+.calendar-day.selected::after{background:var(--gold2)}
+.calendar-day:disabled{opacity:.28;background:#f3f1eb}
+.slot{border:1px solid #e5e1d8;background:white}
+.slot.active{border-color:var(--gold);background:#fff8df}
+.loader-backdrop{position:fixed;inset:0;background:rgba(247,244,236,.88);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;z-index:100}
+.loader-card{background:white;border:1px solid #e5dfd1;border-radius:28px;padding:24px 28px;box-shadow:0 18px 45px #26351426;text-align:center;min-width:220px}
+.loader-logo{width:64px;height:64px;border-radius:20px;animation:spin 1.15s linear infinite;margin:auto}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.loader-logo{animation:none}}
+.success-ring{width:76px;height:76px;border-radius:999px;background:#edf3e6;display:flex;align-items:center;justify-content:center;margin:auto;font-size:38px;color:var(--olive)}
+
+.install-banner{position:fixed;left:12px;right:12px;bottom:86px;z-index:80;max-width:560px;margin:auto;background:white;border:1px solid #dfe6ea;border-radius:20px;box-shadow:0 18px 40px #0002;padding:14px;display:flex;align-items:flex-start;gap:12px}
+.install-banner img{width:44px;height:44px;border-radius:14px;flex:0 0 auto}
+.install-banner .install-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.install-btn{border-radius:12px;padding:10px 14px;font-size:14px;font-weight:600}
+.install-dismiss{background:#f1f3f5;color:#59636c}
+.install-primary{background:var(--olive);color:white}
+
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="installMount"></div>
+
+<script src="config.js"></script>
+<script src="services.js"></script>
+<script>
+const C=HECTOR_CONFIG,S=HECTOR_SERVICES;
+
+let state={
+  patient:null,
+  phone:'',
+  view:'login',
+  service:null,
+  slots:[],
+  slot:null,
+  selectedDate:null,
+  calendarMonth:null,
+  loading:false,
+  loadingText:'',
+  bookingResult:null,
+  paymentStatus:null,
+  paymentMethod:null,
+  appointments:[],
+  appointmentsLoaded:false,
+  products:[],
+  productsLoaded:false,
+  productSearch:''
+};
+
+const money=n=>n==null?'—':new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN',maximumFractionDigits:0}).format(n);
+
+function setLoading(on,text='Procesando…'){
+  state.loading=on;
+  state.loadingText=text;
+  render();
+}
+
+async function api(body){
+  const r=await fetch(C.webhook,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(body)
+  });
+  if(!r.ok) throw new Error('Error '+r.status);
+  return r.json();
+}
+
+function toast(t){
+  const e=document.createElement('div');
+  e.className='fixed top-4 left-1/2 -translate-x-1/2 z-[120] bg-black text-white px-4 py-3 rounded-xl text-sm shadow-xl';
+  e.textContent=t;
+  document.body.appendChild(e);
+  setTimeout(()=>e.remove(),2600);
+}
+
+function loader(){
+  if(!state.loading)return '';
+  return `<div class="loader-backdrop" role="status" aria-live="polite">
+    <div class="loader-card">
+      <img src="assets/logo-paciente.png" class="loader-logo" alt="">
+      <div class="font-semibold mt-4">${state.loadingText}</div>
+      <div class="text-xs text-stone-500 mt-1">Esto puede tardar unos segundos</div>
+    </div>
+  </div>`;
+}
+
+function shell(content){
+  return `<div class="min-h-screen pb-24">
+    <header class="brand text-white px-5 pt-7 pb-8 rounded-b-[32px]">
+      <div class="max-w-xl mx-auto flex items-center gap-3">
+        <img src="assets/logo-paciente.png" class="w-14 h-14 rounded-2xl" alt="Logo Dr. Héctor">
+        <div>
+          <div class="text-xs opacity-70">Tu espacio de salud</div>
+          <h1 class="font-semibold text-xl">Dr. Héctor Carrillo</h1>
+        </div>
+      </div>
+    </header>
+    <main class="max-w-xl mx-auto p-4 -mt-3">${content}</main>
+    ${state.patient && state.view!=='success'?nav():''}
+    ${loader()}
+  </div>`;
+}
+
+function nav(){
+  return `<nav class="fixed bottom-0 inset-x-0 bg-white border-t border-stone-200 z-40">
+    <div class="max-w-xl mx-auto grid grid-cols-4 py-2">
+      <button class="navbtn ${state.view==='home'?'active':''}" onclick="go('home')">⌂<span class="block text-xs">Inicio</span></button>
+      <button class="navbtn ${state.view==='appointments'?'active':''}" onclick="openAppointments()">▣<span class="block text-xs">Mis citas</span></button>
+      <button class="navbtn ${state.view==='book'?'active':''}" onclick="go('book')">＋<span class="block text-xs">Agendar</span></button>
+      <button class="navbtn ${state.view==='services'?'active':''}" onclick="go('services')">♡<span class="block text-xs">Servicios</span></button>
+    </div>
+  </nav>`;
+}
+
+function render(){
+  let h='';
+  if(state.view==='login')h=login();
+  else if(state.view==='register')h=register();
+  else if(state.view==='home')h=home();
+  else if(state.view==='services')h=services();
+  else if(state.view==='appointments')h=appointments();
+  else if(state.view==='products')h=products();
+  else if(state.view==='book')h=book();
+  else if(state.view==='success')h=success();
+  document.querySelector('#app').innerHTML=shell(h);
+}
+
+function login(){
+  return `<section class="card rounded-3xl p-6">
+    <h2 class="text-2xl font-semibold text-stone-800">Bienvenida</h2>
+    <p class="text-stone-500 mt-2">Ingresa tu número de WhatsApp para localizar tu expediente.</p>
+    <label class="block mt-5 text-sm font-medium">WhatsApp</label>
+    <input id="phone" inputmode="numeric" maxlength="10" class="w-full border rounded-2xl px-4 py-4 mt-2 text-lg" placeholder="33 1234 5678">
+    <button onclick="findPatient()" class="btn w-full rounded-2xl py-4 mt-4 font-semibold">Buscar mi expediente</button>
+  </section>`;
+}
+
+async function findPatient(){
+  const el=document.querySelector('#phone');
+  const p=(el?.value||'').replace(/\D/g,'').slice(-10);
+  if(p.length!==10)return toast('Ingresa 10 dígitos');
+  state.phone=p;
+  setLoading(true,'Buscando tu expediente…');
+  try{
+    const r=await api({action:'buscar_paciente',telefono:p});
+    state.loading=false;
+    if(r.encontrado){
+      state.patient=r.paciente;
+      state.appointments=[];
+      state.appointmentsLoaded=false;
+      state.products=[];
+      state.productsLoaded=false;
+      state.productSearch='';
+      state.view='home';
+    }else{
+      state.view='register';
+    }
+    render();
+  }catch(e){
+    state.loading=false;render();toast('No pude conectar con Nimbo');
+  }
+}
+
+function register(){
+  return `<section class="card rounded-3xl p-5">
+    <button onclick="go('login')" class="text-sm gold">← Regresar</button>
+    <h2 class="text-xl font-semibold mt-3">Crear expediente</h2>
+    <p class="text-sm text-stone-500 mt-1">Solo pedimos los datos necesarios para registrarte.</p>
+    <div class="grid gap-3 mt-4">
+      <input id="fn" class="border rounded-xl p-3" placeholder="Nombre(s)">
+      <input id="ln" class="border rounded-xl p-3" placeholder="Apellidos">
+      <input id="dob" type="date" class="border rounded-xl p-3">
+      <select id="gender" class="border rounded-xl p-3">
+        <option value="">Sexo</option><option value="f">Femenino</option><option value="m">Masculino</option>
+      </select>
+      <input id="email" type="email" class="border rounded-xl p-3" placeholder="Correo electrónico">
+      <input value="${state.phone}" disabled class="border rounded-xl p-3 bg-stone-100">
+    </div>
+    <button onclick="createPatient()" class="btn w-full rounded-2xl py-4 mt-4 font-semibold">Crear expediente</button>
+  </section>`;
+}
+
+async function createPatient(){
+  const b={
+    action:'crear_paciente',
+    telefono:state.phone,
+    first_name:document.querySelector('#fn').value.trim(),
+    last_name:document.querySelector('#ln').value.trim(),
+    born_at:document.querySelector('#dob').value,
+    gender:document.querySelector('#gender').value,
+    email:document.querySelector('#email').value.trim()
+  };
+  if(!b.first_name||!b.last_name||!b.born_at||!b.gender||!b.email)return toast('Completa todos los campos');
+  setLoading(true,'Creando tu expediente…');
+  try{
+    const r=await api(b);
+    state.patient=r.paciente;
+    state.loading=false;
+    state.products=[];
+    state.productsLoaded=false;
+    state.productSearch='';
+    state.view='home';
+    render();toast('Expediente creado');
+  }catch(e){
+    state.loading=false;render();toast('No se pudo crear el expediente');
+  }
+}
+
+function home(){
+  return `<div class="grid gap-4">
+    <section class="card rounded-3xl p-5">
+      <p class="text-sm text-stone-500">Hola</p>
+      <h2 class="text-2xl font-semibold">${state.patient.nombre||state.patient.first_name}</h2>
+      <p class="text-sm text-stone-500 mt-1">Tu expediente está conectado con Nimbo.</p>
+    </section>
+    <button onclick="go('book')" class="brand text-white text-left rounded-3xl p-6">
+      <div class="gold text-sm">Agenda en tiempo real</div>
+      <div class="text-2xl font-semibold mt-1">Agendar una cita</div>
+      <div class="opacity-70 text-sm mt-2">Consulta disponibilidad real del Dr. Héctor.</div>
+    </button>
+    <button onclick="openAppointments()" class="card rounded-3xl p-5 text-left">
+      <div class="font-semibold text-lg">Mis citas</div>
+      <div class="text-sm text-stone-500">Consulta tus próximas citas registradas en Nimbo.</div>
+    </button>
+    <button onclick="go('services')" class="card rounded-3xl p-5 text-left">
+      <div class="font-semibold text-lg">Ver servicios y precios</div>
+      <div class="text-sm text-stone-500">Consulta el tarifario disponible.</div>
+    </button>
+    <button onclick="openProducts()" class="card rounded-3xl p-5 text-left">
+      <div class="font-semibold text-lg">Productos y servicios</div>
+      <div class="text-sm text-stone-500">Consulta el catálogo activo conectado con Nimbo.</div>
+    </button>
+  </div>`;
+}
+
+
+function patientId(){
+  return String(
+    state.patient?.id ||
+    state.patient?.person_id ||
+    state.patient?.patient_id ||
+    ''
+  );
+}
+
+function formatAppointmentDate(iso){
+  try{
+    const d=new Date(iso);
+    return {
+      fecha:new Intl.DateTimeFormat('es-MX',{
+        weekday:'short',day:'numeric',month:'short',
+        timeZone:'America/Mexico_City'
+      }).format(d),
+      hora:new Intl.DateTimeFormat('es-MX',{
+        hour:'numeric',minute:'2-digit',
+        timeZone:'America/Mexico_City'
+      }).format(d)
+    };
+  }catch(e){
+    return {fecha:'',hora:''};
+  }
+}
+
+function appointmentWhatsAppUrl(c){
+  const tel='5213328489220';
+  const f=formatAppointmentDate(c.starts_at);
+  const nombre=state.patient?.nombre ||
+    [state.patient?.first_name,state.patient?.last_name].filter(Boolean).join(' ') ||
+    'paciente';
+
+  const msg=`Hola, soy ${nombre}. Me comunico por mi cita con el Dr. Héctor Carrillo del ${f.fecha} a las ${f.hora}${c.motivo?` (${c.motivo})`:''}.`;
+  return `https://wa.me/${tel}?text=${encodeURIComponent(msg)}`;
+}
+
+async function openAppointments(){
+  state.view='appointments';
+  render();
+  await loadAppointments();
+}
+
+async function loadAppointments(){
+  const id=patientId();
+  if(!id){
+    toast('No pude identificar tu expediente');
+    return;
+  }
+
+  setLoading(true,'Consultando tus citas…');
+
+  try{
+    const r=await api({
+      action:'listar_citas',
+      paciente_id:id
+    });
+
+    state.loading=false;
+    state.appointments=Array.isArray(r.citas)?r.citas:[];
+    state.appointmentsLoaded=true;
+    render();
+  }catch(e){
+    state.loading=false;
+    state.appointmentsLoaded=true;
+    state.appointments=[];
+    render();
+    toast('No pude consultar tus citas');
+  }
+}
+
+function appointments(){
+  if(!state.appointmentsLoaded){
+    return `<section class="card rounded-3xl p-6">
+      <button onclick="go('home')" class="text-sm gold">← Inicio</button>
+      <h2 class="text-2xl font-semibold mt-3">Mis citas</h2>
+      <p class="text-stone-500 mt-2">Consultando tus próximas citas registradas en Nimbo.</p>
+    </section>`;
+  }
+
+  if(!state.appointments.length){
+    return `<section class="card rounded-3xl p-6">
+      <button onclick="go('home')" class="text-sm gold">← Inicio</button>
+      <h2 class="text-2xl font-semibold mt-3">Mis citas</h2>
+      <p class="text-stone-500 mt-2">No tienes próximas citas registradas.</p>
+      <button onclick="go('book')" class="btn w-full rounded-2xl py-4 mt-5 font-semibold">Agendar una cita</button>
+      <button onclick="loadAppointments()" class="w-full border rounded-2xl py-3 mt-3">Actualizar</button>
+    </section>`;
+  }
+
+  return `<div class="space-y-4">
+    <div class="flex items-center justify-between gap-3">
+      <div>
+        <h2 class="text-2xl font-semibold">Mis citas</h2>
+        <p class="text-sm text-stone-500">Próximas citas registradas en Nimbo.</p>
+      </div>
+      <button onclick="loadAppointments()" class="border rounded-xl px-3 py-2 text-sm">Actualizar</button>
+    </div>
+
+    ${state.appointments.map(c=>{
+      const f=formatAppointmentDate(c.starts_at);
+      return `<article class="card rounded-3xl p-5">
+        <div class="flex justify-between gap-3">
+          <div>
+            <div class="text-xs gold font-semibold">PRÓXIMA CITA</div>
+            <h3 class="font-semibold text-lg mt-1">${c.motivo || c.servicio || 'Consulta'}</h3>
+            <div class="text-sm text-stone-600 mt-2">${f.fecha} · ${f.hora}</div>
+          </div>
+          <span class="text-xs bg-[#edf3e6] text-[#294317] px-3 py-1 rounded-full h-fit">Nimbo</span>
+        </div>
+
+        <div class="grid gap-2 mt-4">
+          <a href="${appointmentWhatsAppUrl(c)}" target="_blank" rel="noopener"
+             class="btn rounded-2xl py-3 text-center font-semibold">
+             Contactar por WhatsApp
+          </a>
+        </div>
+      </article>`;
+    }).join('')}
+  </div>`;
+}
+
+
+function productWhatsAppUrl(p){
+  const tel='5213328489220';
+  const nombre=state.patient?.nombre ||
+    [state.patient?.first_name,state.patient?.last_name].filter(Boolean).join(' ') ||
+    'paciente';
+
+  const msg=`Hola, soy ${nombre}. Me interesa solicitar información sobre ${p.nombre}${p.precio?` con precio de ${money(p.precio)}`:''}. ¿Me pueden apoyar, por favor?`;
+  return `https://wa.me/${tel}?text=${encodeURIComponent(msg)}`;
+}
+
+async function openProducts(){
+  state.view='products';
+  render();
+
+  if(!state.productsLoaded){
+    await loadProducts();
+  }
+}
+
+async function loadProducts(){
+  setLoading(true,'Cargando catálogo de Nimbo…');
+
+  try{
+    const r=await api({action:'listar_productos'});
+
+    state.loading=false;
+    state.products=Array.isArray(r.productos)?r.productos:[];
+    state.productsLoaded=true;
+    render();
+
+    if(!state.products.length){
+      toast('No encontré productos activos');
+    }
+  }catch(e){
+    state.loading=false;
+    state.productsLoaded=true;
+    state.products=[];
+    render();
+    toast('No pude cargar el catálogo');
+  }
+}
+
+function setProductSearch(v){
+  state.productSearch=String(v||'');
+  render();
+  const el=document.querySelector('#productSearch');
+  if(el){
+    el.focus();
+    try{el.setSelectionRange(el.value.length,el.value.length)}catch(e){}
+  }
+}
+
+function products(){
+  if(!state.productsLoaded){
+    return `<section class="card rounded-3xl p-6">
+      <button onclick="go('home')" class="text-sm gold">← Inicio</button>
+      <h2 class="text-2xl font-semibold mt-3">Productos y servicios</h2>
+      <p class="text-stone-500 mt-2">Consultando el catálogo activo de Nimbo.</p>
+    </section>`;
+  }
+
+  const q=state.productSearch.trim().toLowerCase();
+  const rows=state.products.filter(p=>{
+    if(!q)return true;
+    return String(p.nombre||'').toLowerCase().includes(q);
+  });
+
+  return `<div class="space-y-4">
+    <div>
+      <button onclick="go('home')" class="text-sm gold">← Inicio</button>
+      <h2 class="text-2xl font-semibold mt-2">Productos y servicios</h2>
+      <p class="text-sm text-stone-500 mt-1">Catálogo activo conectado directamente con Nimbo.</p>
+    </div>
+
+    <section class="card rounded-3xl p-4">
+      <div class="flex gap-2">
+        <input id="productSearch"
+          value="${state.productSearch.replace(/"/g,'&quot;')}"
+          oninput="setProductSearch(this.value)"
+          class="w-full border rounded-2xl px-4 py-3"
+          placeholder="Buscar producto o servicio">
+        <button onclick="loadProducts()" class="border rounded-2xl px-4 py-3 text-sm font-semibold">Actualizar</button>
+      </div>
+      <div class="text-xs text-stone-400 mt-2">${rows.length} de ${state.products.length} conceptos activos</div>
+    </section>
+
+    ${rows.length?rows.map(p=>`
+      <article class="card rounded-2xl p-4">
+        <div class="flex justify-between gap-4">
+          <div class="min-w-0">
+            <h3 class="font-semibold">${p.nombre||'Concepto'}</h3>
+            ${p.sku?`<div class="text-xs text-stone-400 mt-1">SKU: ${p.sku}</div>`:''}
+            ${p.stockable?`<div class="text-xs text-stone-400 mt-1">Inventario: ${p.stock<0?'Disponible':p.stock}</div>`:''}
+          </div>
+          <div class="font-semibold shrink-0">${money(p.precio)}</div>
+        </div>
+
+        <a href="${productWhatsAppUrl(p)}"
+           target="_blank"
+           rel="noopener"
+           class="btn block w-full rounded-2xl py-3 mt-4 text-center font-semibold">
+          Solicitar por WhatsApp
+        </a>
+      </article>
+    `).join(''):`<section class="card rounded-3xl p-6 text-center text-stone-500">
+      No encontramos resultados con esa búsqueda.
+    </section>`}
+  </div>`;
+}
+
+function services(){
+  return `<div class="space-y-3">
+    ${S.map(s=>`<article class="card rounded-2xl p-4">
+      <div class="flex justify-between gap-3">
+        <div>
+          <h3 class="font-semibold">${s.name}</h3>
+          <p class="text-xs text-stone-500 mt-1">${s.description}</p>
+        </div>
+        <div class="text-right shrink-0">
+          <div class="font-semibold">${money(s.promo??s.regular)}</div>
+          ${s.promo?`<div class="text-xs line-through text-stone-400">${money(s.regular)}</div>`:''}
+        </div>
+      </div>
+      ${s.bookable?`<button onclick="pickService('${s.code}')" class="mt-3 text-sm gold font-semibold">Agendar →</button>`:`<div class="mt-3 text-xs text-stone-400">Solicitar con asesor</div>`}
+    </article>`).join('')}
+  </div>`;
+}
+
+function pickService(code){
+  state.service=S.find(x=>x.code===code);
+  state.view='book';
+  state.slots=[];
+  state.slot=null;
+  state.selectedDate=null;
+  state.calendarMonth=null;
+  render();
+  loadSlots();
+}
+
+function parseDateOnly(s){
+  const [y,m,d]=s.split('-').map(Number);
+  return new Date(y,m-1,d);
+}
+
+function monthKey(date){return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}`}
+
+function availableDates(){
+  return [...new Set(state.slots.map(x=>x.fecha))].sort();
+}
+
+function ensureCalendarMonth(){
+  if(state.calendarMonth)return;
+  const dates=availableDates();
+  const d=dates.length?parseDateOnly(dates[0]):new Date();
+  state.calendarMonth=new Date(d.getFullYear(),d.getMonth(),1);
+}
+
+function monthTitle(d){
+  return d.toLocaleDateString('es-MX',{month:'long',year:'numeric'});
+}
+
+function moveMonth(delta){
+  const d=new Date(state.calendarMonth);
+  d.setMonth(d.getMonth()+delta);
+  state.calendarMonth=d;
+  state.selectedDate=null;
+  state.slot=null;
+  render();
+}
+
+function calendar(){
+  ensureCalendarMonth();
+  const m=state.calendarMonth;
+  const year=m.getFullYear(),month=m.getMonth();
+  const first=new Date(year,month,1);
+  const days=new Date(year,month+1,0).getDate();
+  const start=(first.getDay()+6)%7;
+  const avail=new Set(availableDates());
+
+  const all=availableDates().map(parseDateOnly);
+  const min=all.length?new Date(all[0].getFullYear(),all[0].getMonth(),1):m;
+  const max=all.length?new Date(all[all.length-1].getFullYear(),all[all.length-1].getMonth(),1):m;
+  const canPrev=m>min, canNext=m<max;
+
+  let cells='';
+  for(let i=0;i<start;i++)cells+='<div></div>';
+  for(let day=1;day<=days;day++){
+    const k=`${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    const has=avail.has(k);
+    const sel=state.selectedDate===k;
+    cells+=`<button ${has?'':'disabled'} onclick="selectDate('${k}')" class="calendar-day ${has?'has-slots':''} ${sel?'selected':''}">
+      <span class="font-medium">${day}</span>
+    </button>`;
+  }
+
+  return `<div class="mt-4">
+    <div class="flex items-center justify-between mb-3">
+      <button onclick="moveMonth(-1)" ${canPrev?'':'disabled'} class="w-10 h-10 border rounded-xl">‹</button>
+      <div class="font-semibold capitalize">${monthTitle(m)}</div>
+      <button onclick="moveMonth(1)" ${canNext?'':'disabled'} class="w-10 h-10 border rounded-xl">›</button>
+    </div>
+    <div class="grid grid-cols-7 text-center text-xs text-stone-400 mb-2">
+      <div>L</div><div>M</div><div>M</div><div>J</div><div>V</div><div>S</div><div>D</div>
+    </div>
+    <div class="grid grid-cols-7 gap-1.5">${cells}</div>
+    <div class="text-xs text-stone-400 mt-3 flex items-center gap-2"><span class="inline-block w-2 h-2 rounded-full bg-[#d7a72c]"></span>Día con disponibilidad</div>
+  </div>`;
+}
+
+function selectDate(k){
+  state.selectedDate=k;
+  state.slot=null;
+  render();
+}
+
+function nextAvailable(){
+  const dates=availableDates();
+  if(!dates.length)return;
+  const k=dates[0];
+  state.selectedDate=k;
+  const d=parseDateOnly(k);
+  state.calendarMonth=new Date(d.getFullYear(),d.getMonth(),1);
+  state.slot=null;
+  render();
+}
+
+function daySlots(){
+  if(!state.selectedDate)return '';
+  const indexes=[];
+  state.slots.forEach((x,i)=>{if(x.fecha===state.selectedDate)indexes.push(i)});
+  const d=parseDateOnly(state.selectedDate);
+  return `<div class="mt-5 border-t pt-5">
+    <h3 class="font-semibold">${d.toLocaleDateString('es-MX',{weekday:'long',day:'numeric',month:'long'})}</h3>
+    <p class="text-xs text-stone-500 mt-1">Selecciona el horario que prefieras.</p>
+    <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-3">
+      ${indexes.map(i=>`<button class="slot rounded-xl p-3 text-sm ${state.slot===i?'active':''}" onclick="state.slot=${i};render()"><b>${state.slots[i].hora}</b></button>`).join('')}
+    </div>
+  </div>`;
+}
+
+function book(){
+  if(!state.service){
+    return `<section class="card rounded-3xl p-5">
+      <h2 class="text-xl font-semibold">Elige un servicio</h2>
+      <div class="mt-4 space-y-2">
+        ${S.filter(x=>x.bookable).map(s=>`<button onclick="pickService('${s.code}')" class="w-full border rounded-2xl p-4 text-left">
+          <div class="font-medium">${s.name}</div>
+          <div class="text-sm gold">${money(s.promo??s.regular)}</div>
+        </button>`).join('')}
+      </div>
+    </section>`;
+  }
+
+  return `<section class="card rounded-3xl p-5">
+    <button onclick="state.service=null;state.slots=[];state.selectedDate=null;render()" class="text-sm gold">← Cambiar servicio</button>
+    <h2 class="text-xl font-semibold mt-2">${state.service.name}</h2>
+    <div class="flex flex-wrap gap-3 text-sm mt-2">
+      <span>${money(state.service.promo??state.service.regular)}</span>
+      <span class="text-stone-400">${state.service.duration} min</span>
+      <span class="text-stone-400 capitalize">${state.service.mode}</span>
+    </div>
+
+    ${state.slots.length?`
+      <div class="flex items-center justify-between mt-5">
+        <h3 class="font-semibold">Elige una fecha</h3>
+        <button onclick="nextAvailable()" class="text-sm gold font-semibold">Próxima disponible</button>
+      </div>
+      ${calendar()}
+      ${daySlots()}
+      ${state.slot!==null?`<button onclick="confirmBooking()" class="btn w-full rounded-2xl py-4 mt-5 font-semibold">Confirmar cita</button>`:''}
+    `:`<div class="mt-5 text-sm text-stone-500">Consultando disponibilidad…</div>`}
+  </section>`;
+}
+
+async function loadSlots(){
+  setLoading(true,'Buscando disponibilidad…');
+  try{
+    const r=await api({
+      action:'consultar_disponibilidad',
+      modalidad:state.service.mode,
+      duracion:state.service.duration
+    });
+    state.slots=r.horarios||[];
+    state.loading=false;
+    if(state.slots.length){
+      const d=parseDateOnly(state.slots[0].fecha);
+      state.calendarMonth=new Date(d.getFullYear(),d.getMonth(),1);
+    }
+    render();
+    if(!state.slots.length)toast('No encontramos horarios disponibles');
+  }catch(e){
+    state.loading=false;render();toast('No pude consultar disponibilidad');
+  }
+}
+
+async function confirmBooking(){
+  const x=state.slots[state.slot];
+  if(!x)return;
+  setLoading(true,'Agendando tu cita…');
+  try{
+    const r=await api({
+      action:'crear_cita',
+      paciente_id:state.patient.id,
+      fecha:x.fecha,
+      hora:x.hora,
+      duracion:state.service.duration,
+      motivo_consulta:state.service.cause,
+      encounter_type_id:state.service.encounterTypeId,
+      modalidad:state.service.mode
+    });
+    state.loading=false;
+    state.bookingResult={
+      service:state.service,
+      slot:x,
+      response:r
+    };
+    state.appointments=[];
+    state.appointmentsLoaded=false;
+    state.view='success';
+    render();
+  }catch(e){
+    state.loading=false;render();toast('No se pudo crear la cita');
+  }
+}
+
+
+async function copyPaymentValue(value,label){
+  try{
+    await navigator.clipboard.writeText(String(value||''));
+    toast(label+' copiado');
+  }catch(e){
+    toast('No pude copiar '+label.toLowerCase());
+  }
+}
+
+async function choosePayment(method){
+  const b=state.bookingResult;
+  if(!b)return;
+
+  const payload={
+    action:'solicitar_pago',
+    paciente_id:String(state.patient?.id||''),
+    telefono:String(state.patient?.telefono||state.patient?.telephone2||state.patient?.telephone||''),
+    email:String(state.patient?.email||''),
+    servicio_id:String(b.service?.code||b.service?.id||''),
+    monto:Number(b.service?.promo??b.service?.regular??0),
+    metodo_pago:method,
+    fecha:String(b.slot?.fecha||''),
+    hora:String(b.slot?.hora||'')
+  };
+
+  setLoading(true,method==='liga'?'Registrando solicitud de liga…':'Preparando transferencia…');
+
+  try{
+    const r=await api(payload);
+    state.loading=false;
+    state.paymentMethod=method;
+    state.paymentStatus=r.estado_pago||(method==='liga'?'pendiente_liga':'pendiente_transferencia');
+    render();
+  }catch(e){
+    state.loading=false;
+    render();
+    toast('Tu cita sí quedó agendada, pero no pude registrar la forma de pago');
+  }
+}
+
+
+function paymentWhatsAppUrl(){
+  const tel='5213328489220';
+  const p=state.patient||{};
+  const b=state.bookingResult||{};
+  const nombre=p.nombre||[p.first_name,p.last_name].filter(Boolean).join(' ')||'';
+  const servicio=b.service?.name||'';
+  const fecha=b.slot?.fecha||'';
+  const hora=b.slot?.hora||'';
+  const msg=`Hola, soy ${nombre || 'paciente del Dr. Héctor Carrillo'}. Realicé mi transferencia para mi cita${servicio?` de ${servicio}`:''}${fecha?` del ${fecha}`:''}${hora?` a las ${hora}`:''}. Te comparto mi comprobante para validar mi pago y confirmar mi espacio.`;
+  return `https://wa.me/${tel}?text=${encodeURIComponent(msg)}`;
+}
+function patientAlertBanner(){
+  if(state.paymentStatus==='pendiente_transferencia'){
+    return `<div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 mt-4 text-left">
+      <div class="font-semibold text-amber-900">Pago pendiente de validar</div>
+      <div class="text-sm text-amber-800 mt-1">Envía tu comprobante por WhatsApp para confirmar tu espacio.</div>
+      <a href="${paymentWhatsAppUrl()}" target="_blank" rel="noopener" class="inline-block mt-3 border border-amber-300 rounded-xl px-4 py-2 text-sm font-semibold">Enviar comprobante por WhatsApp</a>
+    </div>`;
+  }
+  if(state.paymentStatus==='pendiente_liga'){
+    return `<div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 mt-4 text-left">
+      <div class="font-semibold text-amber-900">Liga de pago solicitada</div>
+      <div class="text-sm text-amber-800 mt-1">Nuestro equipo está pendiente de enviarte la liga para completar tu pago.</div>
+    </div>`;
+  }
+  return '';
+}
+
+function paymentSection(){
+  if(state.paymentStatus==='pendiente_liga'){
+    return `<div class="bg-[#f5f7ef] border border-[#dfe7d4] rounded-2xl p-4 mt-5 text-left">
+      <div class="font-semibold">Solicitud de liga registrada ✓</div>
+      <div class="text-sm text-stone-600 mt-1">Nuestro equipo dará seguimiento para enviarte la liga de pago.</div>
+    </div>`;
+  }
+
+  if(state.paymentStatus==='pendiente_transferencia'){
+    return `<div class="bg-[#faf8f1] rounded-2xl p-4 mt-5 text-left">
+      <div class="font-semibold text-lg">Datos para transferencia</div>
+      <div class="text-sm text-stone-500 mt-1">HSBC · Héctor Jesús Carrillo Vidrio</div>
+
+      <div class="mt-4">
+        <div class="text-xs text-stone-500">No. de cuenta</div>
+        <div class="flex items-center justify-between gap-3 mt-1">
+          <div class="font-semibold tracking-wide">6453507182</div>
+          <button onclick="copyPaymentValue('6453507182','Cuenta')" class="border rounded-xl px-3 py-2 text-sm">Copiar</button>
+        </div>
+      </div>
+
+      <div class="mt-4">
+        <div class="text-xs text-stone-500">CLABE</div>
+        <div class="flex items-center justify-between gap-3 mt-1">
+          <div class="font-semibold tracking-wide break-all">021320064535071827</div>
+          <button onclick="copyPaymentValue('021320064535071827','CLABE')" class="border rounded-xl px-3 py-2 text-sm">Copiar</button>
+        </div>
+      </div>
+
+      <div class="text-sm text-stone-600 mt-4">
+        Una vez realizada la transferencia, por favor indica como referencia tu primer nombre y apellido.
+        Si requieres factura, es indispensable enviarnos tu constancia de situación fiscal y el comprobante de pago por este medio.
+      </div>
+      <div class="text-xs text-amber-700 mt-3">Pago pendiente de validación.</div>
+      <a href="${paymentWhatsAppUrl()}" target="_blank" rel="noopener" class="block w-full text-center border border-[#d8c997] rounded-2xl py-3.5 mt-4 font-semibold text-[#5f552d]">Enviar comprobante por WhatsApp</a>
+      <div class="text-xs text-stone-500 mt-2">Número de citas: +52 1 33 2848 9220</div>
+    </div>`;
+  }
+
+  return `<div class="border border-[#e7e0cc] rounded-2xl p-4 mt-5 text-left">
+    <div class="font-semibold text-lg">¿Cómo deseas continuar con el pago?</div>
+    <div class="text-sm text-stone-500 mt-1">Tu cita ya quedó registrada. Elige una opción.</div>
+    <div class="grid sm:grid-cols-2 gap-3 mt-4">
+      <button onclick="choosePayment('liga')" class="btn rounded-2xl py-3.5 font-semibold">Solicitar liga de pago</button>
+      <button onclick="choosePayment('transferencia')" class="border border-[#d8c997] rounded-2xl py-3.5 font-semibold text-[#5f552d]">Transferencia bancaria</button>
+    </div>
+  </div>`;
+}
+
+function success(){
+  const b=state.bookingResult;
+  const d=parseDateOnly(b.slot.fecha);
+  return `<section class="card rounded-3xl p-7 text-center">
+    <div class="success-ring">✓</div>
+    <h2 class="text-2xl font-semibold mt-4">¡Tu cita quedó agendada!</h2>
+    <p class="text-stone-500 mt-2">Ya quedó registrada en la agenda del Dr. Héctor.</p>
+    <div class="bg-[#faf8f1] rounded-2xl p-4 mt-5 text-left">
+      <div class="text-sm text-stone-500">Servicio</div>
+      <div class="font-semibold">${b.service.name}</div>
+      <div class="grid grid-cols-2 gap-3 mt-4">
+        <div><div class="text-xs text-stone-500">Fecha</div><div class="font-medium">${d.toLocaleDateString('es-MX',{day:'numeric',month:'long',year:'numeric'})}</div></div>
+        <div><div class="text-xs text-stone-500">Hora</div><div class="font-medium">${b.slot.hora}</div></div>
+      </div>
+    </div>
+
+    ${paymentSection()}${patientAlertBanner()}
+
+    <button onclick="finishBooking()" class="w-full border rounded-2xl py-4 mt-5 font-semibold">Volver al inicio</button>
+  </section>`;
+}
+
+function finishBooking(){
+  state.view='home';
+  state.service=null;
+  state.slots=[];
+  state.slot=null;
+  state.selectedDate=null;
+  state.calendarMonth=null;
+  state.bookingResult=null;
+  state.paymentStatus=null;
+  state.paymentMethod=null;
+  render();
+}
+
+function go(v){
+  state.view=v;
+  render();
+}
+
+
+let deferredInstallPrompt=null;
+let installBannerDismissed=false;
+function isIOS(){return /iphone|ipad|ipod/i.test(navigator.userAgent);}
+function isStandalone(){return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone===true;}
+function renderInstallBanner(){
+  const mount=document.getElementById('installMount');
+  if(!mount||isStandalone()||installBannerDismissed){if(mount)mount.innerHTML='';return;}
+  const canNative=!!deferredInstallPrompt;
+  const ios=isIOS();
+  if(!canNative&&!ios){mount.innerHTML='';return;}
+  mount.innerHTML=`<div class="install-banner">
+    <img src="assets/logo-paciente.png" alt="">
+    <div class="min-w-0 flex-1">
+      <div class="font-semibold text-sm">Instalar Mi Salud</div>
+      <div class="text-xs text-slate-500 mt-1">${ios?'Toca Compartir y luego “Agregar a pantalla de inicio”.':'Instálala en tu celular para abrirla como una app.'}</div>
+      <div class="install-actions">
+        ${canNative?'<button class="install-btn install-primary" onclick="installApp()">Instalar</button>':''}
+        <button class="install-btn install-dismiss" onclick="dismissInstall()">Después</button>
+      </div>
+    </div>
+  </div>`;
+}
+async function installApp(){
+  if(!deferredInstallPrompt)return;
+  deferredInstallPrompt.prompt();
+  try{await deferredInstallPrompt.userChoice;}catch(e){}
+  deferredInstallPrompt=null;
+  renderInstallBanner();
+}
+function dismissInstall(){installBannerDismissed=true;renderInstallBanner();}
+window.addEventListener('beforeinstallprompt',(e)=>{e.preventDefault();deferredInstallPrompt=e;renderInstallBanner();});
+window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;installBannerDismissed=true;renderInstallBanner();});
+setTimeout(renderInstallBanner,900);
+
+render();
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js?v=45');
+</script>
+</body>
+</html>
