@@ -495,6 +495,35 @@ async function choosePayment(method){
   }
 }
 
+
+function paymentWhatsAppUrl(){
+  const tel='5213328489220';
+  const p=state.patient||{};
+  const b=state.bookingResult||{};
+  const nombre=p.nombre||[p.first_name,p.last_name].filter(Boolean).join(' ')||'';
+  const servicio=b.service?.name||'';
+  const fecha=b.slot?.fecha||'';
+  const hora=b.slot?.hora||'';
+  const msg=`Hola, soy ${nombre || 'paciente del Dr. Héctor Carrillo'}. Realicé mi transferencia para mi cita${servicio?` de ${servicio}`:''}${fecha?` del ${fecha}`:''}${hora?` a las ${hora}`:''}. Te comparto mi comprobante para validar mi pago y confirmar mi espacio.`;
+  return `https://wa.me/${tel}?text=${encodeURIComponent(msg)}`;
+}
+function patientAlertBanner(){
+  if(state.paymentStatus==='pendiente_transferencia'){
+    return `<div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 mt-4 text-left">
+      <div class="font-semibold text-amber-900">Pago pendiente de validar</div>
+      <div class="text-sm text-amber-800 mt-1">Envía tu comprobante por WhatsApp para confirmar tu espacio.</div>
+      <a href="${paymentWhatsAppUrl()}" target="_blank" rel="noopener" class="inline-block mt-3 border border-amber-300 rounded-xl px-4 py-2 text-sm font-semibold">Enviar comprobante por WhatsApp</a>
+    </div>`;
+  }
+  if(state.paymentStatus==='pendiente_liga'){
+    return `<div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 mt-4 text-left">
+      <div class="font-semibold text-amber-900">Liga de pago solicitada</div>
+      <div class="text-sm text-amber-800 mt-1">Nuestro equipo está pendiente de enviarte la liga para completar tu pago.</div>
+    </div>`;
+  }
+  return '';
+}
+
 function paymentSection(){
   if(state.paymentStatus==='pendiente_liga'){
     return `<div class="bg-[#f5f7ef] border border-[#dfe7d4] rounded-2xl p-4 mt-5 text-left">
@@ -529,6 +558,8 @@ function paymentSection(){
         Si requieres factura, es indispensable enviarnos tu constancia de situación fiscal y el comprobante de pago por este medio.
       </div>
       <div class="text-xs text-amber-700 mt-3">Pago pendiente de validación.</div>
+      <a href="${paymentWhatsAppUrl()}" target="_blank" rel="noopener" class="block w-full text-center border border-[#d8c997] rounded-2xl py-3.5 mt-4 font-semibold text-[#5f552d]">Enviar comprobante por WhatsApp</a>
+      <div class="text-xs text-stone-500 mt-2">Número de citas: +52 1 33 2848 9220</div>
     </div>`;
   }
 
@@ -558,7 +589,7 @@ function success(){
       </div>
     </div>
 
-    ${paymentSection()}
+    ${paymentSection()}${patientAlertBanner()}
 
     <button onclick="finishBooking()" class="w-full border rounded-2xl py-4 mt-5 font-semibold">Volver al inicio</button>
   </section>`;
@@ -618,7 +649,7 @@ window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;installBa
 setTimeout(renderInstallBanner,900);
 
 render();
-if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js?v=41');
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js?v=42');
 </script>
 </body>
 </html>
