@@ -398,27 +398,100 @@ function citas(){
 function addQuoteItem(code){
   const s=code?S.find(x=>x.code===code):S[0];
   if(!s)return;
-  state.quoteItems.push({concepto:s.name,descripcion:s.description||'',incluye:'',precio:Number(s.promo??s.regular??0)});
+  state.quoteItems.push({
+    concepto:s.name,
+    descripcion:s.description||'',
+    incluye:'',
+    precio_lista:Number(s.regular??s.promo??0),
+    precio_promo:(s.promo!=null && Number(s.promo)!==Number(s.regular)) ? Number(s.promo) : 0,
+    precio:Number(s.promo??s.regular??0)
+  });
   state.quoteResult=null;
   render();
 }
 function removeQuoteItem(i){state.quoteItems.splice(i,1);state.quoteResult=null;render()}
-function updateQuotePrice(i,v){state.quoteItems[i].precio=Number(v||0);state.quoteResult=null;const el=document.querySelector('#quoteTotal');if(el)el.textContent=money(quoteTotal())}
+function effectiveQuotePrice(x){
+  const promo=Number(x.precio_promo||0);
+  const lista=Number(x.precio_lista||x.precio||0);
+  return promo>0 ? promo : lista;
+}
+function refreshQuoteTotal(){
+  state.quoteResult=null;
+  const el=document.querySelector('#quoteTotal');
+  if(el)el.textContent=money(quoteTotal());
+}
+function updateQuoteListPrice(i,v){
+  state.quoteItems[i].precio_lista=Number(v||0);
+  state.quoteItems[i].precio=effectiveQuotePrice(state.quoteItems[i]);
+  refreshQuoteTotal();
+}
+function updateQuotePromoPrice(i,v){
+  state.quoteItems[i].precio_promo=Number(v||0);
+  state.quoteItems[i].precio=effectiveQuotePrice(state.quoteItems[i]);
+  refreshQuoteTotal();
+}
 function updateInclude(i,v){state.quoteItems[i].incluye=v;state.quoteResult=null}
 function setPromoDate(v){state.promoDate=v;state.quoteResult=null}
-function quoteTotal(){return state.quoteItems.reduce((a,x)=>a+Number(x.precio||0),0)}
+function quoteTotal(){return state.quoteItems.reduce((a,x)=>a+effectiveQuotePrice(x),0)}
 function formatPromoDate(v){if(!v)return '';const [y,m,d]=v.split('-');return `${d}/${m}/${y}`}
+
+
+function quotePdfUrl(r){
+  if(!r)return '';
+  return r.pdf_url || r.webViewLink || r.web_view_link || r.url || r.file_url || '';
+}
+function quoteWhatsAppUrl(){
+  const r=state.quoteResult||{};
+  const pdf=quotePdfUrl(r);
+  const tel=String(state.patient?.telefono||state.patient?.telephone2||'').replace(/\D/g,'');
+  const numero=tel.startsWith('52')?tel:`52${tel}`;
+  const nombre=state.patient?.nombre||[state.patient?.first_name,state.patient?.last_name].filter(Boolean).join(' ')||'';
+  const folio=r.numero_cotizacion||'';
+  const texto=[
+    `Hola${nombre?` ${nombre}`:''}, te compartimos la cotización solicitada del consultorio del Dr. Héctor Carrillo.`,
+    folio?`Folio: ${folio}.`:'',
+    pdf?`Puedes consultarla aquí: ${pdf}`:'',
+    'Si tienes alguna duda, con gusto te apoyamos.'
+  ].filter(Boolean).join('\n');
+  return `https://wa.me/${numero}?text=${encodeURIComponent(texto)}`;
+}
+async function shareQuote(){
+  const r=state.quoteResult||{};
+  const pdf=quotePdfUrl(r);
+  if(!pdf)return toast('No recibí la liga del PDF');
+  const nombre=state.patient?.nombre||'Paciente';
+  if(navigator.share){
+    try{
+      await navigator.share({
+        title:`Cotización Dr. Héctor Carrillo - ${nombre}`,
+        text:'Te compartimos tu cotización del consultorio del Dr. Héctor Carrillo.',
+        url:pdf
+      });
+      return;
+    }catch(e){
+      if(e?.name==='AbortError')return;
+    }
+  }
+  try{
+    await navigator.clipboard.writeText(pdf);
+    toast('Liga del PDF copiada');
+  }catch(e){
+    window.open(pdf,'_blank');
+  }
+}
 
 function quoteResultCard(){
   if(!state.quoteResult)return '';
   const r=state.quoteResult;
+  const pdf=quotePdfUrl(r);
   return `<div class="mt-5 border border-emerald-200 bg-emerald-50 rounded-2xl p-4">
     <div class="font-semibold text-emerald-800">Cotización generada ✓</div>
     <div class="text-sm text-emerald-700 mt-1">${r.numero_cotizacion||''}</div>
-    <div class="grid sm:grid-cols-2 gap-2 mt-4">
-      ${r.pdf_url?`<a href="${r.pdf_url}" target="_blank" rel="noopener" class="btn rounded-xl py-3 text-center text-sm font-semibold">Ver PDF</a>`:''}
-      <button disabled class="border rounded-xl py-3 text-sm text-slate-400">Enviar por WhatsApp</button>
-    </div>
+    ${pdf?`<div class="grid sm:grid-cols-3 gap-2 mt-4">
+      <a href="${pdf}" target="_blank" rel="noopener" class="btn rounded-xl py-3 text-center text-sm font-semibold">Ver PDF</a>
+      <a href="${quoteWhatsAppUrl()}" target="_blank" rel="noopener" class="border border-emerald-300 text-emerald-800 rounded-xl py-3 text-center text-sm font-semibold">Enviar por WhatsApp</a>
+      <button onclick="shareQuote()" class="border rounded-xl py-3 text-sm font-semibold">Compartir</button>
+    </div>`:`<div class="mt-3 text-sm text-amber-700">El PDF se generó, pero el webhook no devolvió una liga para abrirlo.</div>`}
   </div>`;
 }
 
@@ -445,8 +518,17 @@ function cotizaciones(){
                 <div class="text-xs text-slate-500 mt-1">${x.descripcion}</div>
                 <label class="block text-xs text-slate-500 mt-3">Incluye <span class="text-slate-400">(opcional)</span></label>
                 <input class="input mt-1" placeholder="Ej. ultrasonido, valoración, interpretación…" value="${String(x.incluye||'').replace(/"/g,'&quot;')}" oninput="updateInclude(${i},this.value)">
-                <label class="block text-xs text-slate-500 mt-3">Precio</label>
-                <input type="number" class="input max-w-40 mt-1" value="${x.precio}" oninput="updateQuotePrice(${i},this.value)">
+                <div class="grid sm:grid-cols-2 gap-3 mt-3">
+                  <div>
+                    <label class="block text-xs text-slate-500">Precio de lista</label>
+                    <input type="number" class="input mt-1" value="${Number(x.precio_lista??x.precio??0)}" oninput="updateQuoteListPrice(${i},this.value)">
+                  </div>
+                  <div>
+                    <label class="block text-xs text-slate-500">Precio promoción <span class="text-slate-400">(opcional)</span></label>
+                    <input type="number" class="input mt-1" placeholder="Sin promoción" value="${Number(x.precio_promo||0)||''}" oninput="updateQuotePromoPrice(${i},this.value)">
+                  </div>
+                </div>
+                ${Number(x.precio_promo||0)>0?`<div class="text-xs text-emerald-700 mt-2">Se cotizará ${money(effectiveQuotePrice(x))} en lugar de ${money(x.precio_lista||0)}.</div>`:''}
               </div>
               <button onclick="removeQuoteItem(${i})" class="h-10 w-10 border rounded-xl">×</button>
             </div>
@@ -481,7 +563,14 @@ async function generateQuote(){
       telefono:state.patient.telefono,
       correo:state.patient.email
     },
-    items:state.quoteItems,
+    items:state.quoteItems.map(x=>({
+      concepto:x.concepto,
+      descripcion:x.descripcion,
+      incluye:x.incluye||'',
+      precio_lista:Number(x.precio_lista||x.precio||0),
+      precio_promo:Number(x.precio_promo||0),
+      precio:effectiveQuotePrice(x)
+    })),
     total:quoteTotal()
   };
   try{
@@ -537,7 +626,7 @@ window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;installBa
 setTimeout(renderInstallBanner,900);
 
 render();
-if('serviceWorker' in navigator) navigator.serviceWorker.register('sw-admin.js?v=27');
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw-admin.js?v=28');
 </script>
 </body>
 </html>
