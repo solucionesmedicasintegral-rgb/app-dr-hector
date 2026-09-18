@@ -4,9 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#06365f">
-<link rel="manifest" href="manifest-admin.json?v=30">
-<link rel="icon" type="image/png" sizes="192x192" href="assets/icon-admin-192.png?v=30">
-<link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon-admin.png?v=30">
+<link rel="manifest" href="manifest-admin.json">
+<link rel="icon" href="assets/logo-admin.png">
 <title>Admin · Dr. Héctor</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
@@ -57,7 +56,8 @@ let state = {
   pin:'',
   products:[],
   productsLoaded:false,
-  productSearch:''
+  productSearch:'',
+  patientResults:[]
 };
 
 const money = n => new Intl.NumberFormat('es-MX',{
@@ -186,10 +186,10 @@ function patientSearchBox(){
   return `<section class="card rounded-3xl p-5">
     <h3 class="font-semibold text-lg">Buscar paciente</h3>
     <div class="flex flex-col sm:flex-row gap-2 mt-3">
-      <input id="patientPhone" inputmode="numeric" maxlength="10" class="input" placeholder="WhatsApp, 10 dígitos">
+      <input id="patientPhone" class="input" placeholder="Nombre, apellido o WhatsApp">
       <button onclick="findPatient()" class="btn rounded-2xl px-5 min-h-[48px]">Buscar</button>
     </div>
-    <div class="mt-4">${patientCard()}</div>
+    <div class="mt-4">${patientResultsCard()}${patientCard()}</div>
   </section>`;
 }
 function patientCard(){
@@ -208,19 +208,101 @@ function patientCard(){
 }
 async function findPatient(){
   const el=document.querySelector('#patientPhone');
-  const t=(el?.value||'').replace(/\D/g,'').slice(-10);
-  if(t.length!==10)return toast('Ingresa 10 dígitos');
+  const q=(el?.value||'').trim();
+
+  if(q.length<2)return toast('Escribe al menos 2 caracteres');
+
+  const digits=q.replace(/\D/g,'');
+
+  const payload={
+    action:'buscar_paciente',
+    busqueda:q
+  };
+
+  // Si parece teléfono, conservar también telefono para compatibilidad
+  if(digits.length>=10){
+    payload.telefono=digits.slice(-10);
+    payload.busqueda=digits.slice(-10);
+  }
+
   setLoading(true,'Buscando paciente en Nimbo…');
+
   try{
-    const r=await core({action:'buscar_paciente',telefono:t});
+    const r=await core(payload);
+
     state.loading=false;
-    state.patient=r.encontrado?r.paciente:null;
+    state.patient=null;
+    state.patientResults=[];
     state.appointments=[];
     state.appointmentsLoaded=false;
+
+    if(r.encontrado){
+      if(r.multiple && Array.isArray(r.pacientes)){
+        state.patientResults=r.pacientes;
+      }else if(r.paciente){
+        state.patient=r.paciente;
+      }else if(Array.isArray(r.pacientes) && r.pacientes.length===1){
+        state.patient=r.pacientes[0];
+      }
+    }
+
     render();
-    if(!state.patient)toast('Paciente no encontrado');
-  }catch(e){state.loading=false;render();toast('Error al buscar paciente')}
+
+    if(!r.encontrado){
+      toast('Paciente no encontrado');
+    }else if(state.patientResults.length>1){
+      toast(`${state.patientResults.length} coincidencias encontradas`);
+    }
+  }catch(e){
+    state.loading=false;
+    state.patient=null;
+    state.patientResults=[];
+    render();
+    toast('Error al buscar paciente');
+  }
 }
+
+function selectPatientResult(i){
+  const p=state.patientResults[i];
+  if(!p)return;
+
+  state.patient=p;
+  state.patientResults=[];
+  state.appointments=[];
+  state.appointmentsLoaded=false;
+
+  render();
+  toast('Paciente seleccionado');
+}
+
+function maskPhone(v){
+  const d=String(v||'').replace(/\D/g,'');
+  if(!d)return 'Sin teléfono';
+  if(d.length<6)return d;
+  return `${d.slice(0,2)}••••${d.slice(-4)}`;
+}
+
+function patientResultsCard(){
+  if(!state.patientResults?.length)return '';
+
+  return `<div class="mb-4 border border-amber-200 bg-amber-50 rounded-2xl p-4">
+    <div class="font-semibold text-amber-900">Selecciona al paciente correcto</div>
+    <div class="text-sm text-amber-800 mt-1">Encontramos ${state.patientResults.length} coincidencias en Nimbo.</div>
+
+    <div class="space-y-2 mt-3">
+      ${state.patientResults.map((p,i)=>`
+        <button onclick="selectPatientResult(${i})" class="w-full text-left border bg-white rounded-xl p-3 hover:bg-slate-50">
+          <div class="font-medium">${p.nombre||'Paciente'}</div>
+          <div class="text-xs text-slate-500 mt-1">
+            ${maskPhone(p.telefono)}${p.email?` · ${p.email}`:''}
+          </div>
+          <div class="text-xs text-slate-400 mt-1">Nimbo ID ${p.id||'—'}</div>
+        </button>
+      `).join('')}
+    </div>
+  </div>`;
+}
+
 function pacientes(){return `<div class="space-y-4"><section><h2 class="text-2xl font-semibold">Pacientes</h2><p class="text-sm text-slate-500 mt-1">Búsqueda directa en Nimbo.</p></section>${patientSearchBox()}</div>`}
 function formatDateTimeMX(iso){
   if(!iso)return {fecha:'—',hora:'—'};
@@ -747,6 +829,7 @@ function logout(){
   state.authorized=false;
   state.pin='';
   state.patient=null;
+  state.patientResults=[];
   state.quoteItems=[];
   state.quoteResult=null;
   state.products=[];
@@ -794,7 +877,7 @@ window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;installBa
 setTimeout(renderInstallBanner,900);
 
 render();
-if('serviceWorker' in navigator) navigator.serviceWorker.register('sw-admin.js?v=30');
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw-admin.js?v=31');
 </script>
 </body>
 </html>
