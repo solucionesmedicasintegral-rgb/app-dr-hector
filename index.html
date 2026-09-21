@@ -4,9 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#263514">
-<link rel="manifest" href="manifest.json?v=45">
-<link rel="icon" type="image/png" sizes="192x192" href="assets/icon-paciente-192.png?v=45">
-<link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=45">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="assets/logo-paciente.png">
 <title>Mi Salud · Dr. Héctor</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
@@ -379,6 +378,12 @@ function appointments(){
           <span class="text-xs bg-[#edf3e6] text-[#294317] px-3 py-1 rounded-full h-fit">Nimbo</span>
         </div>
 
+        <div class="bg-[#fffaf0] border border-[#ead9a8] rounded-2xl p-3 mt-4 text-sm text-stone-700">
+          <b>Importante sobre tu cita</b><br>
+          Puedes reagendarla una sola vez y con al menos 48 horas de anticipación.
+          Si necesitas hacer un ajuste fuera de ese periodo, contáctanos por WhatsApp.
+        </div>
+
         <div class="grid gap-2 mt-4">
           <a href="${appointmentWhatsAppUrl(c)}" target="_blank" rel="noopener"
              class="btn rounded-2xl py-3 text-center font-semibold">
@@ -653,6 +658,11 @@ function book(){
       <span class="text-stone-400 capitalize">${state.service.mode}</span>
     </div>
 
+    <div class="mt-4 bg-[#fffaf0] border border-[#ead9a8] rounded-2xl p-4 text-sm text-stone-700">
+      Puedes reagendar tu cita una vez, siempre que lo hagas con al menos
+      <b>48 horas de anticipación</b>.
+    </div>
+
     ${state.slots.length?`
       <div class="flex items-center justify-between mt-5">
         <h3 class="font-semibold">Elige una fecha</h3>
@@ -911,7 +921,7 @@ window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;installBa
 setTimeout(renderInstallBanner,900);
 
 render();
-if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js?v=45');
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js?v=46');
 </script>
 </body>
 </html>
