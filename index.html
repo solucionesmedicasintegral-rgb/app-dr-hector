@@ -76,7 +76,9 @@ let state={
   appointmentsLoaded:false,
   products:[],
   productsLoaded:false,
-  productSearch:''
+  productSearch:'',
+  rebooking:null,
+  rebookingDuration:60
 };
 
 const money=n=>n==null?'—':new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN',maximumFractionDigits:0}).format(n);
@@ -151,6 +153,7 @@ function render(){
   else if(state.view==='home')h=home();
   else if(state.view==='services')h=services();
   else if(state.view==='appointments')h=appointments();
+  else if(state.view==='reschedule')h=reschedule();
   else if(state.view==='products')h=products();
   else if(state.view==='book')h=book();
   else if(state.view==='success')h=success();
@@ -304,6 +307,202 @@ function appointmentWhatsAppUrl(c){
   return `https://wa.me/${tel}?text=${encodeURIComponent(msg)}`;
 }
 
+function appointmentId(c){
+  return String(c?.id ?? c?.cita_id ?? c?.appointment_id ?? '');
+}
+
+function appointmentDuration(c){
+  const direct=Number(c?.duracion || c?.duration || 0);
+  if(direct>0)return direct;
+  if(c?.starts_at && c?.ends_at){
+    const a=new Date(c.starts_at).getTime();
+    const b=new Date(c.ends_at).getTime();
+    const mins=Math.round((b-a)/60000);
+    if(Number.isFinite(mins) && mins>0 && mins<=240)return mins;
+  }
+  return 60;
+}
+
+function appointmentMode(c){
+  const raw=String(c?.modalidad || c?.mode || c?.tipo_modalidad || '').toLowerCase();
+  if(raw.includes('virtual') || raw.includes('online'))return 'virtual';
+  if(raw.includes('presencial'))return 'presencial';
+  const reason=String(c?.motivo || c?.servicio || c?.cause || '').toLowerCase();
+  if(Number(c?.encounter_type_id)===2654 || reason.includes('virtual') || reason.includes('online'))return 'virtual';
+  return 'presencial';
+}
+
+function hoursUntilAppointment(c){
+  const t=new Date(c?.starts_at || '').getTime();
+  if(!Number.isFinite(t))return -Infinity;
+  return (t-Date.now())/3600000;
+}
+
+function canRebookByTime(c){
+  return hoursUntilAppointment(c)>=48;
+}
+
+async function startRebooking(id){
+  const c=state.appointments.find(x=>appointmentId(x)===String(id));
+  if(!c)return toast('No pude identificar la cita');
+
+  if(!canRebookByTime(c)){
+    toast('La ventana de 48 horas ya cerró');
+    window.open(appointmentWhatsAppUrl(c),'_blank','noopener');
+    return;
+  }
+
+  state.rebooking=c;
+  state.rebookingDuration=appointmentDuration(c);
+  state.service=null;
+  state.slots=[];
+  state.slot=null;
+  state.selectedDate=null;
+  state.calendarMonth=null;
+  state.view='reschedule';
+  render();
+  await loadRebookingSlots();
+}
+
+async function loadRebookingSlots(){
+  const c=state.rebooking;
+  if(!c)return;
+
+  setLoading(true,'Buscando nuevos horarios…');
+  try{
+    const r=await api({
+      action:'consultar_disponibilidad',
+      modalidad:appointmentMode(c),
+      duracion:state.rebookingDuration
+    });
+
+    state.slots=Array.isArray(r.horarios)?r.horarios:[];
+    state.loading=false;
+
+    if(state.slots.length){
+      const d=parseDateOnly(state.slots[0].fecha);
+      state.calendarMonth=new Date(d.getFullYear(),d.getMonth(),1);
+    }
+
+    render();
+    if(!state.slots.length)toast('No encontramos horarios disponibles');
+  }catch(e){
+    state.loading=false;
+    render();
+    toast('No pude consultar disponibilidad');
+  }
+}
+
+function reschedule(){
+  const c=state.rebooking;
+  if(!c){
+    return `<section class="card rounded-3xl p-6">
+      <button onclick="openAppointments()" class="text-sm gold">← Mis citas</button>
+      <h2 class="text-2xl font-semibold mt-3">Reagendar cita</h2>
+      <p class="text-stone-500 mt-2">No pude identificar la cita que deseas cambiar.</p>
+    </section>`;
+  }
+
+  const f=formatAppointmentDate(c.starts_at);
+  const reason=c.motivo || c.servicio || c.cause || 'Consulta';
+
+  return `<section class="card rounded-3xl p-5">
+    <button onclick="openAppointments()" class="text-sm gold">← Mis citas</button>
+    <h2 class="text-2xl font-semibold mt-3">Reagendar cita</h2>
+    <p class="text-sm text-stone-500 mt-1">Elige una nueva fecha y horario disponible.</p>
+
+    <div class="bg-[#faf8f1] rounded-2xl p-4 mt-4">
+      <div class="text-xs text-stone-500">Cita actual</div>
+      <div class="font-semibold mt-1">${reason}</div>
+      <div class="text-sm text-stone-600 mt-1">${f.fecha} · ${f.hora}</div>
+    </div>
+
+    <div class="mt-4 bg-[#fffaf0] border border-[#ead9a8] rounded-2xl p-4 text-sm text-stone-700">
+      <b>Recuerda:</b> cada cita puede reagendarse una sola vez y el cambio debe solicitarse con al menos 48 horas de anticipación. La app verificará esta condición antes de confirmar.
+    </div>
+
+    ${state.slots.length?`
+      <div class="flex items-center justify-between mt-5">
+        <h3 class="font-semibold">Nueva fecha</h3>
+        <button onclick="nextAvailable()" class="text-sm gold font-semibold">Próxima disponible</button>
+      </div>
+      ${calendar()}
+      ${daySlots()}
+      ${state.slot!==null?`<button onclick="confirmRebooking()" class="btn w-full rounded-2xl py-4 mt-5 font-semibold">Confirmar reagendación</button>`:''}
+    `:`<div class="mt-5 text-sm text-stone-500">Consultando disponibilidad…</div>`}
+
+    <a href="${appointmentWhatsAppUrl(c)}" target="_blank" rel="noopener"
+       class="block w-full border rounded-2xl py-3 mt-3 text-center text-sm font-semibold">
+      Necesito ayuda por WhatsApp
+    </a>
+  </section>`;
+}
+
+async function confirmRebooking(){
+  const c=state.rebooking;
+  const x=state.slots[state.slot];
+  if(!c || !x)return;
+
+  if(!canRebookByTime(c)){
+    toast('La ventana de 48 horas ya cerró');
+    return;
+  }
+
+  const nueva=parseDateOnly(x.fecha).toLocaleDateString('es-MX',{day:'numeric',month:'long',year:'numeric'});
+  const ok=window.confirm(`¿Confirmas cambiar tu cita al ${nueva} a las ${x.hora}?\n\nRecuerda que solo puedes reagendar esta cita una vez.`);
+  if(!ok)return;
+
+  setLoading(true,'Reagendando tu cita…');
+
+  try{
+    const r=await api({
+      action:'validar_reagendacion',
+      cita_id:appointmentId(c),
+      starts_at:String(c.starts_at||''),
+      paciente_id:patientId(),
+      nueva_fecha:String(x.fecha||''),
+      nueva_hora:String(x.hora||''),
+      duracion:state.rebookingDuration
+    });
+
+    state.loading=false;
+
+    if(r?.permitido===false || r?.motivo==='fuera_de_ventana_48h' || r?.motivo==='reagendacion_ya_utilizada'){
+      const msg=r?.motivo==='reagendacion_ya_utilizada'
+        ? 'Esta cita ya utilizó su única reagendación.'
+        : 'La ventana de 48 horas para reagendar ya cerró.';
+      state.view='appointments';
+      state.rebooking=null;
+      render();
+      toast(msg+' Puedes contactarnos por WhatsApp.');
+      return;
+    }
+
+    const guardada = r?.usada===true || r?.reagendacion_usada===true || r?.nueva_fecha || r?.createdAt || r?.id;
+    if(!guardada && r?.ok===false){
+      render();
+      toast('No se pudo completar la reagendación');
+      return;
+    }
+
+    state.rebooking=null;
+    state.slots=[];
+    state.slot=null;
+    state.selectedDate=null;
+    state.calendarMonth=null;
+    state.appointmentsLoaded=false;
+    state.appointments=[];
+    state.view='appointments';
+    render();
+    toast('Tu cita fue reagendada correctamente');
+    await loadAppointments();
+  }catch(e){
+    state.loading=false;
+    render();
+    toast('No se pudo completar la reagendación');
+  }
+}
+
 async function openAppointments(){
   state.view='appointments';
   render();
@@ -385,8 +584,19 @@ function appointments(){
         </div>
 
         <div class="grid gap-2 mt-4">
+          ${canRebookByTime(c)?`
+            <button onclick="startRebooking('${appointmentId(c)}')"
+                    class="btn rounded-2xl py-3 text-center font-semibold">
+              Reagendar cita
+            </button>
+            <div class="text-xs text-center text-stone-400">La app verificará que no hayas utilizado antes tu única reagendación.</div>
+          `:`
+            <div class="bg-stone-50 border rounded-2xl p-3 text-sm text-stone-600 text-center">
+              La ventana para reagendar desde la app ya cerró. Podemos ayudarte por WhatsApp.
+            </div>
+          `}
           <a href="${appointmentWhatsAppUrl(c)}" target="_blank" rel="noopener"
-             class="btn rounded-2xl py-3 text-center font-semibold">
+             class="border rounded-2xl py-3 text-center font-semibold">
              Contactar por WhatsApp
           </a>
         </div>
@@ -881,6 +1091,7 @@ function finishBooking(){
 }
 
 function go(v){
+  if(v!=='reschedule')state.rebooking=null;
   state.view=v;
   render();
 }
@@ -921,7 +1132,7 @@ window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;installBa
 setTimeout(renderInstallBanner,900);
 
 render();
-if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js?v=46');
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js?v=47');
 </script>
 </body>
 </html>
