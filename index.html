@@ -716,21 +716,47 @@ function products(){
   </div>`;
 }
 
-function services(){
-  return `<div class="space-y-3">
-    ${S.map(s=>`<article class="card rounded-2xl p-4">
-      <div class="flex justify-between gap-3">
-        <div>
-          <h3 class="font-semibold">${s.name}</h3>
-          <p class="text-xs text-stone-500 mt-1">${s.description}</p>
-        </div>
-        <div class="text-right shrink-0">
-          <div class="font-semibold">${money(s.promo??s.regular)}</div>
-          ${s.promo?`<div class="text-xs line-through text-stone-400">${money(s.regular)}</div>`:''}
-        </div>
+
+function appointmentServiceGroups(){
+  return [
+    {key:'seguimiento',title:'Seguimiento',subtitle:'Consultas para continuar tu atención con el Dr. Héctor.'},
+    {key:'embarazo',title:'Embarazo',subtitle:'Seguimiento y control durante el embarazo.'},
+    {key:'ginecologia',title:'Chequeo ginecológico',subtitle:'Selecciona la opción que corresponda a tu etapa.'}
+  ];
+}
+
+function servicePickerCards(){
+  return appointmentServiceGroups().map(g=>{
+    const rows=S.filter(s=>s.bookable && s.category===g.key);
+    if(!rows.length)return '';
+    return `<section class="card rounded-3xl p-5">
+      <h3 class="font-semibold text-lg">${g.title}</h3>
+      <p class="text-sm text-stone-500 mt-1">${g.subtitle}</p>
+      <div class="mt-4 space-y-3">
+        ${rows.map(s=>`<button onclick="pickService('${s.code}')" class="w-full border border-stone-200 rounded-2xl p-4 text-left hover:border-[#d7a72c] transition">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <div class="font-semibold">${s.name}</div>
+              <div class="text-xs text-stone-500 mt-1">${s.description}</div>
+              <div class="text-xs text-stone-400 mt-2">${s.duration} min · ${s.mode==='virtual'?'Virtual':'Presencial'}</div>
+            </div>
+            <div class="text-right shrink-0">
+              <div class="font-semibold gold">${money(s.regular)}</div>
+            </div>
+          </div>
+        </button>`).join('')}
       </div>
-      ${s.bookable?`<button onclick="pickService('${s.code}')" class="mt-3 text-sm gold font-semibold">Agendar →</button>`:`<div class="mt-3 text-xs text-stone-400">Solicitar con asesor</div>`}
-    </article>`).join('')}
+    </section>`;
+  }).join('');
+}
+
+function services(){
+  return `<div class="space-y-4">
+    <div>
+      <h2 class="text-2xl font-semibold">Servicios y precios</h2>
+      <p class="text-sm text-stone-500 mt-1">Estas son las citas disponibles para agendar desde la app. Los precios mostrados son netos.</p>
+    </div>
+    ${servicePickerCards()}
   </div>`;
 }
 
@@ -848,15 +874,14 @@ function daySlots(){
 
 function book(){
   if(!state.service){
-    return `<section class="card rounded-3xl p-5">
-      <h2 class="text-xl font-semibold">Elige un servicio</h2>
-      <div class="mt-4 space-y-2">
-        ${S.filter(x=>x.bookable).map(s=>`<button onclick="pickService('${s.code}')" class="w-full border rounded-2xl p-4 text-left">
-          <div class="font-medium">${s.name}</div>
-          <div class="text-sm gold">${money(s.promo??s.regular)}</div>
-        </button>`).join('')}
-      </div>
-    </section>`;
+    return `<div class="space-y-4">
+      <section class="card rounded-3xl p-5">
+        <div class="text-xs uppercase tracking-wide gold font-semibold">Agenda</div>
+        <h2 class="text-2xl font-semibold mt-1">¿Qué cita necesitas?</h2>
+        <p class="text-sm text-stone-500 mt-2">Selecciona una opción para consultar la disponibilidad real del Dr. Héctor.</p>
+      </section>
+      ${servicePickerCards()}
+    </div>`;
   }
 
   return `<section class="card rounded-3xl p-5">
@@ -1132,7 +1157,7 @@ window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;installBa
 setTimeout(renderInstallBanner,900);
 
 render();
-if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js?v=47');
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js?v=48');
 </script>
 </body>
 </html>
