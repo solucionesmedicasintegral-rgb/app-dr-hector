@@ -429,7 +429,7 @@ async function savePaymentState(c,metodo,monto,estadoPago){
     if(!['pagado','sin_pago','pendiente_liga','pendiente_transferencia'].includes(estado)){
       render();toast('Core no confirmó el estado del pago');return;
     }
-    for(const item of state.tomorrowAppointments||[]){
+    for(const item of [...(state.tomorrowAppointments||[]),...(state.appointments||[])]){
       if(appointmentId(item)===citaId){
         item.estado_pago=estado;
         item.monto=Number(r.monto);
@@ -438,6 +438,17 @@ async function savePaymentState(c,metodo,monto,estadoPago){
     }
     render();toast('Estado de pago guardado');
   }catch(e){state.loading=false;render();toast('No pude guardar el estado de pago');}
+}
+function markAppointmentPaid(id){
+  const c=state.appointments.find(item=>appointmentId(item)===String(id));
+  if(!c)return toast('No pude identificar la cita');
+  if(c.estado_pago==='pagado')return toast('Este pago ya fue registrado');
+  return markPaid({
+    ...c,
+    person_id:c.person_id||state.patient?.id,
+    telefono:c.telefono||state.patient?.telefono||'',
+    email:c.email||state.patient?.email||''
+  });
 }
 async function markPaid(c){
   const amountText=prompt('Monto recibido en pesos:','');
@@ -686,6 +697,9 @@ function appointmentCards(){
       <div class="grid sm:grid-cols-2 gap-2 mt-4">
         <a href="${whatsappConfirmUrl(c)}" target="_blank" rel="noopener" class="border rounded-xl py-2 px-3 text-center text-sm font-medium">Confirmar por WhatsApp</a>
         <button onclick="openAdminRebooking('${adminAppointmentId(c)}')" class="border rounded-xl py-2 px-3 text-sm">Reprogramar cita</button>
+        ${c.estado_pago==='pagado'
+          ?'<span class="badge green text-center self-center">Pago registrado</span>'
+          :`<button onclick="markAppointmentPaid('${adminAppointmentId(c)}')" class="border border-emerald-300 text-emerald-800 rounded-xl py-2 px-3 text-sm">Registrar pago recibido</button>`}
       </div>
     </div>`;
   }).join('')}</div>`;
