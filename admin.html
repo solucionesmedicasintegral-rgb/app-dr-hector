@@ -66,7 +66,9 @@ let state = {
   orderAddress:'',
   rebooking:null,
   rebookingSlots:[],
-  rebookingSlot:-1
+  rebookingSlot:-1,
+  rebookingDate:'',
+  rebookingMonth:''
 };
 
 const money = n => new Intl.NumberFormat('es-MX',{
@@ -286,6 +288,8 @@ function selectPatientResult(i){
   state.rebooking=null;
   state.rebookingSlots=[];
   state.rebookingSlot=-1;
+  state.rebookingDate='';
+  state.rebookingMonth='';
 
   render();
   toast('Paciente seleccionado');
@@ -518,6 +522,8 @@ async function openAdminRebooking(id){
   state.rebooking=c;
   state.rebookingSlots=[];
   state.rebookingSlot=-1;
+  state.rebookingDate='';
+  state.rebookingMonth='';
   setLoading(true,'Buscando horarios disponibles…');
   try{
     const r=await core({
@@ -526,6 +532,9 @@ async function openAdminRebooking(id){
       duracion:adminAppointmentDuration(c)
     });
     state.rebookingSlots=Array.isArray(r.horarios)?r.horarios:[];
+    const firstDay=adminAvailableDates()[0]||'';
+    state.rebookingDate=firstDay;
+    state.rebookingMonth=firstDay.slice(0,7);
     state.loading=false;
     render();
     if(!state.rebookingSlots.length)toast('No hay horarios disponibles');
@@ -535,23 +544,85 @@ async function openAdminRebooking(id){
     toast('No pude consultar disponibilidad');
   }
 }
+function adminAvailableDates(){
+  return [...new Set(state.rebookingSlots.map(slot=>String(slot.fecha||''))
+    .filter(fecha=>/^\d{4}-\d{2}-\d{2}$/.test(fecha)))].sort();
+}
+function adminSelectRebookingDay(fecha){
+  if(!adminAvailableDates().includes(fecha))return;
+  state.rebookingDate=fecha;
+  state.rebookingSlot=-1;
+  render();
+}
+function adminMoveRebookingMonth(direction){
+  const months=[...new Set(adminAvailableDates().map(fecha=>fecha.slice(0,7)))];
+  const at=months.indexOf(state.rebookingMonth);
+  const next=months[at+direction];
+  if(!next)return;
+  state.rebookingMonth=next;
+  state.rebookingDate='';
+  state.rebookingSlot=-1;
+  render();
+}
 function adminRebookingPanel(){
   const c=state.rebooking;
   if(!c)return '';
-  const now=new Date(c.starts_at);
-  if(!Number.isFinite(now.getTime()))return '';
-  const options=state.rebookingSlots.map((slot,i)=>{
-    const label=`${slot.fecha} · ${slot.hora}`;
-    return `<option value="${i}" ${state.rebookingSlot===i?'selected':''}>${label}</option>`;
-  }).join('');
+  const current=new Date(c.starts_at);
+  if(!Number.isFinite(current.getTime()))return '';
+  const dates=adminAvailableDates();
+  if(!dates.length)return `<section class="border border-sky-200 rounded-2xl p-4 mt-4 bg-sky-50">
+    <div class="font-semibold">Reprogramar cita</div>
+    <p class="text-sm mt-2">No hay horarios disponibles por ahora.</p>
+    <button onclick="state.rebooking=null;render()" class="border rounded-xl px-4 py-2 mt-3">Cerrar</button>
+  </section>`;
+  const months=[...new Set(dates.map(fecha=>fecha.slice(0,7)))];
+  const month=months.includes(state.rebookingMonth)?state.rebookingMonth:months[0];
+  const [year,number]=month.split('-').map(Number);
+  const first=new Date(Date.UTC(year,number-1,1));
+  const days=new Date(Date.UTC(year,number,0)).getUTCDate();
+  const leading=(first.getUTCDay()+6)%7;
+  const activeDates=new Set(dates);
+  const selected=state.rebookingDate;
+  const cells=Array.from({length:leading},()=>'<span></span>').concat(
+    Array.from({length:days},(_,i)=>{
+      const fecha=`${month}-${String(i+1).padStart(2,'0')}`;
+      const available=activeDates.has(fecha);
+      return `<button type="button" ${available?`onclick="adminSelectRebookingDay('${fecha}')"`:'disabled'}
+        class="rounded-xl h-11 text-sm font-medium ${selected===fecha?'bg-[#06365f] text-white':available?'bg-white border border-sky-300 text-sky-900 hover:bg-sky-100':'text-slate-400 cursor-default'}"
+        aria-label="${fecha}" ${selected===fecha?'aria-pressed="true"':''}>${i+1}</button>`;
+    })
+  ).join('');
+  const slotIndexes=state.rebookingSlots.map((slot,i)=>slot.fecha===selected?i:-1).filter(i=>i>=0);
+  const title=first.toLocaleDateString('es-MX',{month:'long',year:'numeric',timeZone:'UTC'});
   return `<section class="border border-sky-200 rounded-2xl p-4 mt-4 bg-sky-50">
     <div class="font-semibold">Reprogramar: ${formatDateTimeMX(c.starts_at).fecha} · ${formatDateTimeMX(c.starts_at).hora}</div>
-    <p class="text-xs text-slate-600 mt-1">Solo se puede reagendar una vez y al menos 48 horas antes. Elige un horario disponible.</p>
-    <div class="flex flex-wrap gap-2 mt-3">
-      <select class="input flex-1 min-w-56" onchange="state.rebookingSlot=Number(this.value)">
-        <option value="-1">Selecciona fecha y hora</option>${options}
-      </select>
-      <button onclick="confirmAdminRebooking()" class="btn rounded-xl px-4 py-2">Confirmar cambio</button>
+    <p class="text-xs text-slate-600 mt-1">Solo se puede reagendar una vez y al menos 48 horas antes. Elige un día marcado y después un horario.</p>
+    <div class="grid md:grid-cols-2 gap-5 mt-4">
+      <div class="bg-white rounded-2xl p-4 border">
+        <div class="flex items-center justify-between gap-2 mb-3">
+          <button type="button" onclick="adminMoveRebookingMonth(-1)" ${month===months[0]?'disabled':''}
+            class="border rounded-lg px-3 py-1 disabled:opacity-30" aria-label="Mes anterior">‹</button>
+          <h4 class="font-semibold capitalize">${title}</h4>
+          <button type="button" onclick="adminMoveRebookingMonth(1)" ${month===months[months.length-1]?'disabled':''}
+            class="border rounded-lg px-3 py-1 disabled:opacity-30" aria-label="Mes siguiente">›</button>
+        </div>
+        <div class="grid grid-cols-7 gap-1 text-center text-xs text-slate-500 mb-2">
+          ${['L','M','M','J','V','S','D'].map((x,i)=>`<span aria-label="${['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'][i]}">${x}</span>`).join('')}
+        </div>
+        <div class="grid grid-cols-7 gap-1 text-center">${cells}</div>
+        <p class="text-xs text-slate-500 mt-3">Los días marcados tienen horarios disponibles.</p>
+      </div>
+      <div>
+        <h4 class="font-semibold mb-2">${selected?`Horarios del ${selected.split('-').reverse().join('/')}`:'Elige un día disponible'}</h4>
+        <div class="grid grid-cols-2 gap-2">
+          ${slotIndexes.map(i=>`<button type="button" onclick="state.rebookingSlot=${i};render()"
+            class="border rounded-xl px-3 py-3 text-sm ${state.rebookingSlot===i?'bg-[#06365f] text-white':'bg-white hover:bg-sky-100'}"
+            aria-pressed="${state.rebookingSlot===i}">${escapeCatalogText(state.rebookingSlots[i].hora)}</button>`).join('')}
+        </div>
+      </div>
+    </div>
+    <div class="flex flex-wrap gap-2 mt-4">
+      <button onclick="confirmAdminRebooking()" ${state.rebookingSlot<0?'disabled':''} class="btn rounded-xl px-4 py-2">Confirmar cambio</button>
       <button onclick="state.rebooking=null;render()" class="border rounded-xl px-4 py-2">Cerrar</button>
     </div>
   </section>`;
@@ -586,6 +657,8 @@ async function confirmAdminRebooking(){
     state.rebooking=null;
     state.rebookingSlots=[];
     state.rebookingSlot=-1;
+  state.rebookingDate='';
+  state.rebookingMonth='';
     state.loading=false;
     render();
     toast(changed?'Cita reagendada en Nimbo':'No pude confirmar el cambio en Nimbo; revisa la cita antes de intentarlo de nuevo');
@@ -1249,6 +1322,8 @@ function logout(){
   state.rebooking=null;
   state.rebookingSlots=[];
   state.rebookingSlot=-1;
+  state.rebookingDate='';
+  state.rebookingMonth='';
   state.view='resumen';
   render();
 }
