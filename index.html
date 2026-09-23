@@ -624,14 +624,61 @@ function appointments(){
 }
 
 
-function productWhatsAppUrl(p){
-  const tel='5213328489220';
-  const nombre=state.patient?.nombre ||
-    [state.patient?.first_name,state.patient?.last_name].filter(Boolean).join(' ') ||
-    'paciente';
-
-  const msg=`Hola, soy ${nombre}. Me interesa solicitar información sobre ${p.nombre}${p.precio?` con precio de ${money(p.precio)}`:''}. ¿Me pueden apoyar, por favor?`;
-  return `https://wa.me/${tel}?text=${encodeURIComponent(msg)}`;
+function addPatientOrderItem(id){
+  const p=state.products.find(x=>String(x.id)===String(id));
+  if(!p || !Number.isFinite(Number(p.precio)) || Number(p.precio)<=0)return toast('Producto no disponible');
+  const items=state.orderItems||(state.orderItems=[]);
+  const found=items.find(x=>String(x.producto_id)===String(id));
+  if(found){if(found.cantidad>=20)return toast('Máximo 20 unidades');found.cantidad++}
+  else items.push({producto_id:String(id),nombre:String(p.nombre||'Producto'),cantidad:1,precio:Number(p.precio)});
+  render();toast('Producto agregado a tu solicitud');
+}
+function removePatientOrderItem(id){
+  state.orderItems=(state.orderItems||[]).filter(x=>String(x.producto_id)!==String(id));
+  render();
+}
+function patientOrderSubtotal(){return (state.orderItems||[]).reduce((s,x)=>s+x.precio*x.cantidad,0)}
+function patientOrderSummary(){
+  const items=state.orderItems||[];
+  if(!items.length)return '';
+  return `<section class="card rounded-3xl p-5">
+    <h3 class="font-semibold text-lg">Tu solicitud</h3>
+    <div class="space-y-2 mt-3">${items.map(x=>`<div class="flex items-center justify-between gap-2 text-sm">
+      <span>${escapeCatalogText(x.nombre)} ×${x.cantidad}</span>
+      <button class="text-red-700" onclick="removePatientOrderItem('${escapeCatalogText(x.producto_id)}')">Quitar</button>
+    </div>`).join('')}</div>
+    <p class="font-semibold mt-3">Productos: ${money(patientOrderSubtotal())}</p>
+    <label class="block text-sm mt-4">Entrega
+      <select id="patientOrderDelivery" class="w-full border rounded-xl p-3 mt-1" onchange="state.orderDelivery=this.value;render()">
+        <option value="recoger" ${state.orderDelivery!=='domicilio'?'selected':''}>Recoger en consultorio</option>
+        <option value="domicilio" ${state.orderDelivery==='domicilio'?'selected':''}>Envío a domicilio</option>
+      </select>
+    </label>
+    ${state.orderDelivery==='domicilio'?`<label class="block text-sm mt-3">Dirección completa
+      <input id="patientOrderAddress" class="w-full border rounded-xl p-3 mt-1" value="${escapeCatalogText(state.orderAddress||'')}" oninput="state.orderAddress=this.value" placeholder="Calle, número, colonia y referencias">
+    </label><p class="text-xs text-stone-500 mt-2">Envío estimado desde $250; el consultorio te confirmará el costo final.</p>`:''}
+    <button onclick="submitPatientOrder()" class="btn w-full rounded-2xl py-4 mt-4 font-semibold">Enviar solicitud</button>
+    <p class="text-xs text-stone-500 mt-2">El consultorio confirmará disponibilidad, envío y total antes de cobrar.</p>
+  </section>`;
+}
+async function submitPatientOrder(){
+  const items=state.orderItems||[];
+  if(!items.length || !patientId())return toast('Selecciona un producto y revisa tu expediente');
+  const delivery=state.orderDelivery==='domicilio'?'domicilio':'recoger';
+  const address=delivery==='domicilio'?String(state.orderAddress||'').trim():'';
+  if(delivery==='domicilio' && address.length<10)return toast('Escribe tu dirección completa');
+  const pedidoId='PED-'+Date.now()+'-'+crypto.randomUUID().slice(0,8);
+  setLoading(true,'Enviando tu solicitud…');
+  try{
+    const r=await api({action:'solicitar_pedido',pedido_id:pedidoId,paciente_id:patientId(),
+      telefono:String(state.phone||state.patient?.telefono||state.patient?.telephone2||''),
+      items:items.map(x=>({producto_id:x.producto_id,cantidad:x.cantidad})),
+      tipo_entrega:delivery,direccion_entrega:address});
+    if(r.ok!==true || String(r.pedido_id)!==pedidoId)throw new Error('Solicitud sin confirmar');
+    state.orderItems=[];state.orderAddress='';state.orderDelivery='recoger';
+    state.loading=false;render();
+    toast('Solicitud recibida. El consultorio te confirmará el total.');
+  }catch(e){state.loading=false;render();toast('No pude enviar tu solicitud; inténtalo de nuevo');}
 }
 
 async function openProducts(){
@@ -732,8 +779,8 @@ function products(){
                 </div>
                 <div class="font-semibold shrink-0">${money(p.precio)}</div>
               </div>
-              <a href="${productWhatsAppUrl(p)}" target="_blank" rel="noopener"
-                class="btn block w-full rounded-2xl py-3 mt-4 text-center font-semibold">Solicitar por WhatsApp</a>
+              <button onclick="addPatientOrderItem('${escapeCatalogText(p.id)}')"
+                class="btn block w-full rounded-2xl py-3 mt-4 text-center font-semibold">Agregar a solicitud</button>
             </article>`).join('')}</div>
         </details>`).join('')}
       </div>
@@ -755,6 +802,7 @@ function products(){
       </div>
       <div class="text-xs text-stone-400 mt-2">${rows.length} de ${state.products.length} conceptos activos</div>
     </section>
+    ${patientOrderSummary()}
     ${content||`<section class="card rounded-3xl p-6 text-center text-stone-500">No encontramos resultados con esa búsqueda.</section>`}
   </div>`;
 }
