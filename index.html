@@ -478,24 +478,42 @@ async function confirmRebooking(){
       return;
     }
 
-    const guardada = r?.usada===true || r?.reagendacion_usada===true || r?.nueva_fecha || r?.createdAt || r?.id;
-    if(!guardada && r?.ok===false){
+    if(r?.ok===false || r?.permitido===false){
       render();
       toast('No se pudo completar la reagendación');
       return;
     }
 
+    // Confirma la cita en Nimbo antes de mostrar éxito: una fila de la Data Table
+    // por sí sola no prueba que la cita se haya movido.
+    const consulta=await api({action:'listar_citas',paciente_id:patientId()});
+    const citas=Array.isArray(consulta?.citas)?consulta.citas:[];
+    const coinciden=(iso)=>{
+      const fecha=new Date(iso||'');
+      if(Number.isNaN(fecha.getTime()))return false;
+      const parts=Object.fromEntries(new Intl.DateTimeFormat('en-US',{
+        timeZone:'America/Mexico_City',year:'numeric',month:'2-digit',
+        day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'
+      }).formatToParts(fecha).map(p=>[p.type,p.value]));
+      return `${parts.year}-${parts.month}-${parts.day}`===x.fecha
+        && `${parts.hour}:${parts.minute}`===x.hora;
+    };
+    const nueva=citas.find(item=>appointmentId(item)===appointmentId(c));
+    const reflejada=nueva ? coinciden(nueva.starts_at)
+      : citas.some(item=>coinciden(item.starts_at))
+        && !citas.some(item=>appointmentId(item)===appointmentId(c));
+    state.appointments=citas;
+    state.appointmentsLoaded=true;
+    state.view='appointments';
     state.rebooking=null;
     state.slots=[];
     state.slot=null;
     state.selectedDate=null;
     state.calendarMonth=null;
-    state.appointmentsLoaded=false;
-    state.appointments=[];
-    state.view='appointments';
     render();
-    toast('Tu cita fue reagendada correctamente');
-    await loadAppointments();
+    toast(reflejada
+      ? 'Tu cita fue reagendada correctamente'
+      : 'No pude confirmar el cambio en Nimbo; contacta al consultorio');
   }catch(e){
     state.loading=false;
     render();
