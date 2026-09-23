@@ -971,12 +971,30 @@ async function copyPaymentValue(value,label){
   }
 }
 
+function bookedAppointmentId(response){
+  const candidates=[
+    response?.cita_id,
+    response?.cita?.cita_id,
+    response?.cita?.id,
+    response?.consultation_schedule?.id,
+    response?.data?.consultation_schedule?.id,
+    response?.id
+  ];
+  return String(candidates.find(v=>v!==null && v!==undefined && String(v).trim())||'').trim();
+}
+
 async function choosePayment(method){
   const b=state.bookingResult;
   if(!b)return;
+  const citaId=bookedAppointmentId(b.response);
+  if(!citaId){
+    toast('Tu cita quedó agendada, pero no recibimos su ID para registrar el pago');
+    return;
+  }
 
   const payload={
     action:'solicitar_pago',
+    cita_id:citaId,
     paciente_id:String(state.patient?.id||''),
     telefono:String(state.patient?.telefono||state.patient?.telephone2||state.patient?.telephone||''),
     email:String(state.patient?.email||''),
@@ -992,8 +1010,14 @@ async function choosePayment(method){
   try{
     const r=await api(payload);
     state.loading=false;
+    const expected=method==='liga'?'pendiente_liga':'pendiente_transferencia';
+    if(r.ok!==true || String(r.cita_id||'')!==citaId || r.estado_pago!==expected){
+      render();
+      toast('Tu cita sí quedó agendada, pero no se registró la forma de pago');
+      return;
+    }
     state.paymentMethod=method;
-    state.paymentStatus=r.estado_pago||(method==='liga'?'pendiente_liga':'pendiente_transferencia');
+    state.paymentStatus=r.estado_pago;
     render();
   }catch(e){
     state.loading=false;
