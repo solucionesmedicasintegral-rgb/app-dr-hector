@@ -912,7 +912,7 @@ function uberTrackingUrl(raw){
   try{
     const u=new URL(String(raw||'').trim());
     const host=u.hostname.toLowerCase();
-    if(u.protocol==='https:' && (host==='uber.com'||host.endsWith('.uber.com')))
+    if(u.protocol==='https:' && (['uber.com','ubereats.com'].some(domain=>host===domain||host.endsWith('.'+domain))))
       return u.href;
   }catch(e){}
   return '';
