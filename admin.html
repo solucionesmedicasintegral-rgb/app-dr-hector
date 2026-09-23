@@ -724,9 +724,10 @@ function setAdminProductSearch(v){
 }
 
 function filteredProducts(){
-  const q=state.productSearch.trim().toLowerCase();
+  const q=state.productSearch.trim().toLocaleLowerCase('es-MX');
   if(!q)return state.products;
-  return state.products.filter(p=>String(p.nombre||'').toLowerCase().includes(q));
+  return state.products.filter(p=>String(p.nombre||'').toLocaleLowerCase('es-MX').includes(q)
+    || catalogCategory(p).toLocaleLowerCase('es-MX').includes(q));
 }
 
 function addNimboItemToQuote(id){
@@ -749,6 +750,56 @@ function addNimboItemToQuote(id){
   toast('Concepto agregado a la cotización');
 }
 
+function catalogCategory(p){
+  const raw=p.categoria||p.category||p.product_category||p.productCategory||'';
+  const name=typeof raw==='object' ? String(raw?.nombre||raw?.name||'') : String(raw);
+  if(name.trim())return name.trim();
+  if(p.stockable===true || p.type==='product')return 'Productos';
+  return 'Servicios y estudios';
+}
+function escapeCatalogText(v){
+  return String(v??'').replace(/[&<>"']/g,ch=>({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[ch]));
+}
+function adminCatalogGroups(rows){
+  const q=state.productSearch.trim();
+  const groups=new Map();
+  for(const p of rows){
+    const name=catalogCategory(p);
+    if(!groups.has(name))groups.set(name,[]);
+    groups.get(name).push(p);
+  }
+  return [...groups.entries()].sort((a,b)=>a[0].localeCompare(b[0],'es-MX')).map(([category,items])=>{
+    const initials=new Map();
+    for(const p of items.sort((a,b)=>String(a.nombre||'').localeCompare(String(b.nombre||''),'es-MX'))){
+      const c=String(p.nombre||'').trim().charAt(0).toLocaleUpperCase('es-MX');
+      const key=/^[A-ZÁÉÍÓÚÑ]$/.test(c)?c:'#';
+      if(!initials.has(key))initials.set(key,[]);
+      initials.get(key).push(p);
+    }
+    return `<details class="border rounded-2xl p-4 mt-3" ${q?'open':''}>
+      <summary class="cursor-pointer font-semibold">${escapeCatalogText(category)} <span class="text-slate-400 text-sm">(${items.length})</span></summary>
+      <div class="space-y-3 mt-4">${[...initials.entries()].map(([letter,products])=>`
+        <details class="border rounded-xl p-3" ${q?'open':''}>
+          <summary class="cursor-pointer font-medium">${letter} <span class="text-slate-400 text-xs">(${products.length})</span></summary>
+          <div class="grid md:grid-cols-2 xl:grid-cols-3 gap-3 mt-3">${products.map(p=>`
+            <article class="border rounded-2xl p-4 bg-white">
+              <div class="flex justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="font-semibold">${escapeCatalogText(p.nombre||'Concepto')}</div>
+                  <div class="text-xs text-slate-400 mt-1">Nimbo ID ${escapeCatalogText(p.id)}</div>
+                  ${p.sku?`<div class="text-xs text-slate-400 mt-1">SKU ${escapeCatalogText(p.sku)}</div>`:''}
+                  ${p.stockable?`<div class="text-xs text-slate-400 mt-1">Stock: ${Number(p.stock)<0?'Disponible':escapeCatalogText(p.stock)}</div>`:''}
+                </div>
+                <div class="gold font-semibold shrink-0">${money(p.precio)}</div>
+              </div>
+              <button onclick="addNimboItemToQuote('${escapeCatalogText(p.id)}')" class="w-full border rounded-xl py-2 mt-3 text-sm font-medium">Agregar a cotización</button>
+            </article>`).join('')}</div>
+        </details>`).join('')}</div>
+    </details>`;
+  }).join('') || '<div class="p-4 text-sm text-slate-500">No encontramos resultados.</div>';
+}
 function nimboCatalogForQuotes(){
   if(!state.productsLoaded){
     return `<div class="border border-dashed rounded-2xl p-5 text-sm text-slate-500">
@@ -757,7 +808,7 @@ function nimboCatalogForQuotes(){
     </div>`;
   }
 
-  const rows=filteredProducts().slice(0,80);
+  const rows=filteredProducts();
 
   return `<div class="space-y-3">
     <div class="flex flex-col sm:flex-row gap-2">
@@ -771,21 +822,7 @@ function nimboCatalogForQuotes(){
 
     <div class="text-xs text-slate-400">${rows.length} resultados visibles</div>
 
-    <div class="grid md:grid-cols-2 xl:grid-cols-3 gap-3 max-h-[520px] overflow-y-auto pr-1">
-      ${rows.map(p=>`
-        <div class="border rounded-2xl p-3 bg-white">
-          <div class="flex justify-between gap-3">
-            <div class="min-w-0">
-              <div class="font-medium">${p.nombre||'Concepto'}</div>
-              ${p.sku?`<div class="text-xs text-slate-400 mt-1">SKU ${p.sku}</div>`:''}
-              ${p.stockable?`<div class="text-xs text-slate-400 mt-1">Stock: ${p.stock<0?'Disponible':p.stock}</div>`:''}
-            </div>
-            <div class="gold font-semibold shrink-0">${money(p.precio)}</div>
-          </div>
-          <button onclick="addNimboItemToQuote('${p.id}')" class="w-full border rounded-xl py-2 mt-3 text-sm font-medium">Agregar a cotización</button>
-        </div>
-      `).join('')}
-    </div>
+    <div class="max-h-[520px] overflow-y-auto pr-1">${adminCatalogGroups(rows)}</div>
   </div>`;
 }
 
@@ -813,22 +850,7 @@ function productos(){
           <div class="badge h-fit self-center">${rows.length} / ${state.products.length}</div>
         </div>
 
-        <div class="grid md:grid-cols-2 xl:grid-cols-3 gap-3 mt-4">
-          ${rows.map(p=>`
-            <article class="border rounded-2xl p-4 bg-white">
-              <div class="flex justify-between gap-3">
-                <div class="min-w-0">
-                  <div class="font-semibold">${p.nombre||'Concepto'}</div>
-                  <div class="text-xs text-slate-400 mt-1">Nimbo ID ${p.id}</div>
-                  ${p.sku?`<div class="text-xs text-slate-400 mt-1">SKU ${p.sku}</div>`:''}
-                  ${p.stockable?`<div class="text-xs text-slate-400 mt-1">Stock: ${p.stock<0?'Disponible':p.stock}</div>`:''}
-                </div>
-                <div class="gold font-semibold shrink-0">${money(p.precio)}</div>
-              </div>
-              <button onclick="addNimboItemToQuote('${p.id}')" class="w-full border rounded-xl py-2 mt-4 text-sm font-medium">Agregar a cotización</button>
-            </article>
-          `).join('')}
-        </div>
+        <div class="mt-4">${adminCatalogGroups(rows)}</div>
       `:`<div class="border border-dashed rounded-2xl p-6 text-center">
         <div class="font-medium">Catálogo de Nimbo</div>
         <div class="text-sm text-slate-500 mt-1">Carga los productos, medicamentos y conceptos facturables activos.</div>
