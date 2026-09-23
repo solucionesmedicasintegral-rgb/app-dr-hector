@@ -57,7 +57,12 @@ let state = {
   products:[],
   productsLoaded:false,
   productSearch:'',
-  patientResults:[]
+  patientResults:[],
+  orders:[],
+  ordersLoaded:false,
+  orderItems:[],
+  orderDelivery:'recoger',
+  orderAddress:''
 };
 
 const money = n => new Intl.NumberFormat('es-MX',{
@@ -233,6 +238,8 @@ async function findPatient(){
     state.loading=false;
     state.patient=null;
     state.patientResults=[];
+    state.orderItems=[];
+    state.orderAddress='';
     state.appointments=[];
     state.appointmentsLoaded=false;
 
@@ -268,6 +275,8 @@ function selectPatientResult(i){
 
   state.patient=p;
   state.patientResults=[];
+  state.orderItems=[];
+  state.orderAddress='';
   state.appointments=[];
   state.appointmentsLoaded=false;
 
@@ -843,7 +852,213 @@ function nimboCatalogForQuotes(){
   </div>`;
 }
 
-function pedidos(){return `<div class="space-y-4"><h2 class="text-2xl font-semibold">Pedidos</h2><section class="card rounded-3xl p-5"><span class="badge gray">Siguiente fase</span></section></div>`}
+const ORDER_SHIPPING=250;
+const ORDER_STATES=['solicitado','recibido_consultorio','enviado','entregado'];
+const ORDER_LABELS={
+  solicitado:'Solicitado',recibido_consultorio:'Recibido en consultorio',
+  enviado:'Enviado',entregado:'Entregado'
+};
+function orderSubtotal(){
+  return state.orderItems.reduce((sum,item)=>sum+item.cantidad*item.precio_unitario,0);
+}
+function orderShipping(){
+  return state.orderDelivery==='domicilio'?ORDER_SHIPPING:0;
+}
+function addOrderItem(){
+  const id=document.querySelector('#orderProduct')?.value;
+  const p=state.products.find(item=>String(item.id)===String(id));
+  const cantidad=Number(document.querySelector('#orderQty')?.value);
+  if(!p)return toast('Elige un producto del catálogo');
+  if(!Number.isInteger(cantidad) || cantidad<1 || cantidad>20)return toast('Indica de 1 a 20 unidades');
+  const precio=Number(p.precio);
+  if(!Number.isFinite(precio) || precio<=0)return toast('Este producto no tiene precio confirmado en Nimbo');
+  const existing=state.orderItems.find(item=>String(item.producto_id)===String(p.id));
+  if(existing && existing.cantidad+cantidad>20)return toast('Máximo 20 unidades por producto');
+  if(existing)existing.cantidad+=cantidad;
+  else state.orderItems.push({
+    producto_id:String(p.id),nombre:String(p.nombre||'Producto'),
+    cantidad,precio_unitario:precio
+  });
+  render();
+}
+function removeOrderItem(index){state.orderItems.splice(index,1);render()}
+async function loadOrders(){
+  setLoading(true,'Cargando pedidos…');
+  try{
+    const r=await core({action:'listar_pedidos',pin:state.pin});
+    if(r.ok!==true || !Array.isArray(r.pedidos))throw new Error('Respuesta de pedidos inválida');
+    state.orders=r.pedidos.map(o=>({
+      ...o,items:Array.isArray(o.items)?o.items:(()=>{try{return JSON.parse(o.items||'[]')}catch(e){return []}})()
+    }));
+    state.ordersLoaded=true;
+    state.loading=false;
+    render();
+  }catch(e){state.loading=false;render();toast('No pude consultar pedidos en Core')}
+}
+async function createOrder(){
+  if(!state.patient?.id)return toast('Selecciona a la paciente');
+  if(!state.orderItems.length)return toast('Agrega al menos un producto');
+  if(state.orderDelivery==='domicilio' && !state.orderAddress.trim())
+    return toast('Indica la dirección de entrega');
+  const total=orderSubtotal()+orderShipping();
+  if(!confirm('¿Registrar este pedido por '+money(total)+'?'))return;
+  const pedidoId='PED-'+Date.now()+'-'+crypto.randomUUID().slice(0,8);
+  const payload={
+    action:'crear_pedido',pin:state.pin,pedido_id:pedidoId,
+    paciente_id:String(state.patient.id),
+    paciente_nombre:String(state.patient.nombre||state.patient.first_name||''),
+    telefono:String(state.patient.telefono||state.patient.telephone2||''),
+    items:state.orderItems.map(x=>({...x})),
+    subtotal:orderSubtotal(),tipo_entrega:state.orderDelivery,
+    costo_envio:orderShipping(),total,
+    direccion_entrega:state.orderDelivery==='domicilio'?state.orderAddress.trim():'',
+    estado_pedido:'solicitado',estado_pago:'pendiente'
+  };
+  setLoading(true,'Registrando pedido…');
+  try{
+    const r=await core(payload);
+    if(r.ok!==true || String(r.pedido_id)!==pedidoId)
+      throw new Error('Core no confirmó el pedido');
+    state.orderItems=[];
+    state.orderAddress='';
+    state.loading=false;
+    await loadOrders();
+    toast('Pedido registrado');
+  }catch(e){state.loading=false;render();toast('No se guardó el pedido')}
+}
+function uberTrackingUrl(raw){
+  try{
+    const u=new URL(String(raw||'').trim());
+    const host=u.hostname.toLowerCase();
+    if(u.protocol==='https:' && (['uber.com','ubereats.com'].some(domain=>host===domain||host.endsWith('.'+domain))))
+      return u.href;
+  }catch(e){}
+  return '';
+}
+async function updateOrder(index,changes){
+  const o=state.orders[index];
+  if(!o)return;
+  setLoading(true,'Actualizando pedido…');
+  try{
+    const r=await core({
+      action:'actualizar_pedido',pin:state.pin,pedido_id:String(o.pedido_id),
+      ...changes
+    });
+    if(r.ok!==true || String(r.pedido_id)!==String(o.pedido_id))
+      throw new Error('Core no confirmó el cambio');
+    state.loading=false;
+    await loadOrders();
+    toast('Pedido actualizado');
+  }catch(e){state.loading=false;render();toast('No se guardó el cambio')}
+}
+function nextOrderState(o){
+  if(o?.tipo_entrega==='recoger' && o?.estado_pedido==='recibido_consultorio')return 'entregado';
+  return ORDER_STATES[ORDER_STATES.indexOf(o?.estado_pedido)+1];
+}
+async function advanceOrder(index){
+  const o=state.orders[index];
+  const next=nextOrderState(o);
+  if(!next)return;
+  if(next==='enviado' && !uberTrackingUrl(o.rastreo_url)){
+    toast('Guarda primero el enlace de rastreo de Uber');
+    return;
+  }
+  if(!confirm('¿Confirmas: '+ORDER_LABELS[next]+'?'))return;
+  await updateOrder(index,{estado_pedido:next});
+}
+async function saveOrderTracking(index){
+  const input=document.querySelector('#tracking-'+index);
+  const url=uberTrackingUrl(input?.value);
+  if(!url)return toast('Pega un enlace HTTPS de Uber válido');
+  await updateOrder(index,{rastreo_url:url});
+}
+async function confirmOrderPayment(index){
+  const o=state.orders[index];
+  if(!o || o.estado_pago==='pagado')return;
+  const method=prompt('Método de pago recibido (transferencia, liga, efectivo o tarjeta):','transferencia');
+  if(method===null)return;
+  const metodo=method.trim().toLowerCase();
+  if(!['transferencia','liga','efectivo','tarjeta'].includes(metodo))
+    return toast('Método de pago no válido');
+  if(!confirm('¿Confirmas que recibiste '+money(o.total)+' por '+metodo+'?'))return;
+  await updateOrder(index,{estado_pago:'pagado',metodo_pago:metodo,monto_pagado:Number(o.total)});
+}
+function trackingWhatsApp(o){
+  const url=uberTrackingUrl(o.rastreo_url);
+  const digits=String(o.telefono||'').replace(/\D/g,'');
+  if(!url || !digits)return '';
+  const phone=digits.length===10?'52'+digits:digits;
+  const msg='Tu pedido del consultorio del Dr. Héctor está en camino. Puedes seguir la entrega aquí: '+url;
+  return 'https://wa.me/'+phone+'?text='+encodeURIComponent(msg);
+}
+function pedidos(){
+  const products=state.products.filter(p=>Number(p.precio)>0);
+  return `<div class="space-y-4">
+    <section><h2 class="text-2xl font-semibold">Pedidos</h2>
+      <p class="text-sm text-slate-500 mt-1">Seguimiento desde el consultorio hasta la entrega.</p>
+    </section>
+    <section class="card rounded-3xl p-5">
+      <h3 class="font-semibold">Nuevo pedido</h3>
+      <div class="mt-4">${patientSearchBox()}</div>
+      ${state.patient?`<div class="grid sm:grid-cols-[1fr_90px_auto] gap-2 mt-4">
+        <select id="orderProduct" class="input">
+          <option value="">Selecciona un producto</option>
+          ${products.map(p=>`<option value="${escapeCatalogText(p.id)}">${escapeCatalogText(p.nombre)} · ${money(p.precio)}</option>`).join('')}
+        </select>
+        <input id="orderQty" type="number" min="1" step="1" value="1" class="input">
+        <button onclick="addOrderItem()" class="btn rounded-xl px-4">Agregar</button>
+      </div>
+      ${!state.productsLoaded?`<button onclick="loadProducts()" class="border rounded-xl px-4 py-2 mt-3">Cargar catálogo Nimbo</button>`:''}
+      <div class="space-y-2 mt-4">${state.orderItems.map((item,i)=>`
+        <div class="flex justify-between items-center border rounded-xl p-3">
+          <div>${escapeCatalogText(item.nombre)} ×${item.cantidad} · ${money(item.precio_unitario*item.cantidad)}</div>
+          <button onclick="removeOrderItem(${i})" class="text-sm text-red-700">Quitar</button>
+        </div>`).join('')}</div>
+      <div class="flex flex-wrap gap-3 items-center mt-4">
+        <label class="text-sm">Entrega
+          <select class="input mt-1" onchange="state.orderDelivery=this.value;render()">
+            <option value="recoger" ${state.orderDelivery==='recoger'?'selected':''}>Recoger en consultorio</option>
+            <option value="domicilio" ${state.orderDelivery==='domicilio'?'selected':''}>Envío a domicilio (+$250)</option>
+          </select>
+        </label>
+        ${state.orderDelivery==='domicilio'?`<label class="flex-1 min-w-60 text-sm">Dirección de entrega
+          <input class="input mt-1" value="${escapeCatalogText(state.orderAddress)}"
+            oninput="state.orderAddress=this.value" placeholder="Dirección completa"></label>`:''}
+      </div>
+      <div class="mt-4 text-sm">Productos: ${money(orderSubtotal())} · Envío: ${money(orderShipping())}</div>
+      <div class="font-semibold text-lg">Total: ${money(orderSubtotal()+orderShipping())}</div>
+      <button onclick="createOrder()" class="btn rounded-xl px-5 py-3 mt-4">Registrar pedido</button>`:''}
+    </section>
+    <section class="card rounded-3xl p-5">
+      <div class="flex justify-between items-center"><h3 class="font-semibold">Seguimiento</h3>
+        <button onclick="loadOrders()" class="border rounded-xl px-4 py-2">Actualizar</button></div>
+      ${!state.ordersLoaded?`<p class="text-sm text-slate-500 mt-3">Carga los pedidos guardados en Core.</p>`
+        :state.orders.length===0?`<p class="text-sm text-slate-500 mt-3">Aún no hay pedidos.</p>`
+        :`<div class="space-y-3 mt-4">${state.orders.map((o,i)=>`
+          <article class="border rounded-2xl p-4">
+            <div class="flex justify-between gap-2">
+              <div><b>${escapeCatalogText(o.paciente_nombre||'Pedido')}</b>
+                <div class="text-xs text-slate-400">${escapeCatalogText(o.pedido_id)}</div></div>
+              <b>${money(o.total)}</b>
+            </div>
+            <div class="text-sm mt-2">${escapeCatalogText(ORDER_LABELS[o.estado_pedido]||o.estado_pedido)}</div>
+            <div class="text-sm text-slate-600 mt-1">Pago: ${o.estado_pago==='pagado'?'Confirmado':'Pendiente'}
+              · ${o.tipo_entrega==='domicilio'?'Domicilio · envío $250':'Recoger en consultorio'}</div>
+            <div class="text-sm mt-2">${(Array.isArray(o.items)?o.items:[]).map(x=>escapeCatalogText(x.nombre)+' ×'+Number(x.cantidad||1)).join(', ')}</div>
+            ${o.tipo_entrega==='domicilio'?`<div class="flex gap-2 mt-3">
+              <input id="tracking-${i}" class="input" value="${escapeCatalogText(o.rastreo_url||'')}" placeholder="Enlace de rastreo de Uber">
+              <button onclick="saveOrderTracking(${i})" class="border rounded-xl px-3">Guardar</button>
+            </div>`:''}
+            <div class="flex flex-wrap gap-2 mt-3">
+              ${o.estado_pago!=='pagado'?`<button onclick="confirmOrderPayment(${i})" class="border rounded-xl px-3 py-2">Confirmar pago</button>`:''}
+              ${o.estado_pedido!=='entregado'?`<button onclick="advanceOrder(${i})" class="border rounded-xl px-3 py-2">Marcar: ${escapeCatalogText(ORDER_LABELS[nextOrderState(o)]||'Siguiente')}</button>`:''}
+              ${o.estado_pedido==='enviado' && trackingWhatsApp(o)?`<a href="${trackingWhatsApp(o)}"
+                target="_blank" rel="noopener" class="border rounded-xl px-3 py-2">Compartir rastreo por WhatsApp</a>`:''}
+            </div>
+          </article>`).join('')}</div>`}
+    </section>
+  </div>`;
+}
 function productos(){
   const rows=filteredProducts();
 
@@ -888,6 +1103,11 @@ function logout(){
   state.products=[];
   state.productsLoaded=false;
   state.productSearch='';
+  state.orders=[];
+  state.ordersLoaded=false;
+  state.orderItems=[];
+  state.orderDelivery='recoger';
+  state.orderAddress='';
   state.view='resumen';
   render();
 }
