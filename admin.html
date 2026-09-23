@@ -996,6 +996,17 @@ async function confirmOrderPayment(index){
   if(!confirm('¿Confirmas que recibiste '+money(o.total)+' por '+metodo+'?'))return;
   await updateOrder(index,{estado_pago:'pagado',metodo_pago:metodo,monto_pagado:Number(o.total)});
 }
+async function editOrderShipping(index){
+  const o=state.orders[index];
+  if(!o || o.tipo_entrega!=='domicilio' || o.estado_pago==='pagado' ||
+     ['enviado','entregado'].includes(o.estado_pedido))return;
+  const value=prompt('Nuevo costo de envío (MXN):',String(o.costo_envio??250));
+  if(value===null)return;
+  const cost=Number(value.trim());
+  if(!Number.isInteger(cost) || cost<0 || cost>2000)return toast('Indica un envío entre $0 y $2,000');
+  if(!confirm('¿Confirmas el nuevo total de '+money(Number(o.subtotal)+cost)+'?'))return;
+  await updateOrder(index,{costo_envio:cost});
+}
 function trackingWhatsApp(o){
   const url=uberTrackingUrl(o.rastreo_url);
   const digits=String(o.telefono||'').replace(/\D/g,'');
@@ -1059,13 +1070,14 @@ function pedidos(){
             </div>
             <div class="text-sm mt-2">${escapeCatalogText(ORDER_LABELS[o.estado_pedido]||o.estado_pedido)}</div>
             <div class="text-sm text-slate-600 mt-1">Pago: ${o.estado_pago==='pagado'?'Confirmado':'Pendiente'}
-              · ${o.tipo_entrega==='domicilio'?'Domicilio · envío $250':'Recoger en consultorio'}</div>
+              · ${o.tipo_entrega==='domicilio'?'Domicilio · envío '+money(o.costo_envio):'Recoger en consultorio'}</div>
             <div class="text-sm mt-2">${(Array.isArray(o.items)?o.items:[]).map(x=>escapeCatalogText(x.nombre)+' ×'+Number(x.cantidad||1)).join(', ')}</div>
             ${o.tipo_entrega==='domicilio'?`<div class="flex gap-2 mt-3">
               <input id="tracking-${i}" class="input" value="${escapeCatalogText(o.rastreo_url||'')}" placeholder="Enlace de rastreo de Uber">
               <button onclick="saveOrderTracking(${i})" class="border rounded-xl px-3">Guardar</button>
             </div>`:''}
             <div class="flex flex-wrap gap-2 mt-3">
+              ${o.tipo_entrega==='domicilio' && o.estado_pago!=='pagado' && !['enviado','entregado'].includes(o.estado_pedido)?`<button onclick="editOrderShipping(${i})" class="border rounded-xl px-3 py-2">Ajustar envío</button>`:''}
               ${o.estado_pago!=='pagado'?`<button onclick="confirmOrderPayment(${i})" class="border rounded-xl px-3 py-2">Confirmar pago</button>`:''}
               ${o.estado_pedido!=='entregado'?`<button onclick="advanceOrder(${i})" class="border rounded-xl px-3 py-2">Marcar: ${escapeCatalogText(ORDER_LABELS[nextOrderState(o)]||'Siguiente')}</button>`:''}
               ${o.estado_pedido==='enviado' && trackingWhatsApp(o)?`<a href="${trackingWhatsApp(o)}"
