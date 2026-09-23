@@ -1153,9 +1153,16 @@ async function copyPaymentValue(value,label){
 async function choosePayment(method){
   const b=state.bookingResult;
   if(!b)return;
+  const citaId=String(b.response?.cita?.id||'').trim();
+  if(!citaId){
+    toast('La cita quedó creada, pero no pudimos identificarla. Contacta al consultorio para elegir cómo pagar.');
+    return;
+  }
+  if(!['liga','transferencia'].includes(method))return;
 
   const payload={
-    action:'solicitar_pago',
+    action:'solicitar_pago_paciente',
+    cita_id:citaId,
     paciente_id:String(state.patient?.id||''),
     telefono:String(state.patient?.telefono||state.patient?.telephone2||state.patient?.telephone||''),
     email:String(state.patient?.email||''),
@@ -1166,13 +1173,16 @@ async function choosePayment(method){
     hora:String(b.slot?.hora||'')
   };
 
-  setLoading(true,method==='liga'?'Registrando solicitud de liga…':'Preparando transferencia…');
+  setLoading(true,method==='liga'?'Solicitando liga de pago…':'Registrando transferencia pendiente…');
 
   try{
     const r=await api(payload);
+    const esperado=method==='liga'?'pendiente_liga':'pendiente_transferencia';
+    if(r?.ok!==true||String(r?.cita_id||'')!==citaId||r?.estado_pago!==esperado)
+      throw new Error('Core no confirmó la solicitud de pago');
     state.loading=false;
     state.paymentMethod=method;
-    state.paymentStatus=r.estado_pago||(method==='liga'?'pendiente_liga':'pendiente_transferencia');
+    state.paymentStatus=esperado;
     render();
   }catch(e){
     state.loading=false;
@@ -1180,7 +1190,6 @@ async function choosePayment(method){
     toast('Tu cita sí quedó agendada, pero no pude registrar la forma de pago');
   }
 }
-
 
 function paymentWhatsAppUrl(){
   const tel='5213328489220';
