@@ -74,6 +74,9 @@ let state={
   paymentMethod:null,
   appointments:[],
   appointmentsLoaded:false,
+  orders:[],
+  ordersLoaded:false,
+  ordersError:false,
   products:[],
   productsLoaded:false,
   productSearch:'',
@@ -137,9 +140,10 @@ function shell(content){
 
 function nav(){
   return `<nav class="fixed bottom-0 inset-x-0 bg-white border-t border-stone-200 z-40">
-    <div class="max-w-xl mx-auto grid grid-cols-4 py-2">
+    <div class="max-w-xl mx-auto grid grid-cols-5 py-2">
       <button class="navbtn ${state.view==='home'?'active':''}" onclick="go('home')">⌂<span class="block text-xs">Inicio</span></button>
       <button class="navbtn ${state.view==='appointments'?'active':''}" onclick="openAppointments()">▣<span class="block text-xs">Mis citas</span></button>
+      <button class="navbtn ${state.view==='orders'?'active':''}" onclick="openOrders()">◇<span class="block text-xs">Pedidos</span></button>
       <button class="navbtn ${state.view==='book'?'active':''}" onclick="go('book')">＋<span class="block text-xs">Agendar</span></button>
       <button class="navbtn ${state.view==='services'?'active':''}" onclick="go('services')">♡<span class="block text-xs">Servicios</span></button>
     </div>
@@ -153,6 +157,7 @@ function render(){
   else if(state.view==='home')h=home();
   else if(state.view==='services')h=services();
   else if(state.view==='appointments')h=appointments();
+  else if(state.view==='orders')h=orders();
   else if(state.view==='reschedule')h=reschedule();
   else if(state.view==='products')h=products();
   else if(state.view==='book')h=book();
@@ -183,6 +188,9 @@ async function findPatient(){
       state.patient=r.paciente;
       state.appointments=[];
       state.appointmentsLoaded=false;
+      state.orders=[];
+      state.ordersLoaded=false;
+      state.ordersError=false;
       state.products=[];
       state.productsLoaded=false;
       state.productSearch='';
@@ -234,6 +242,9 @@ async function createPatient(){
     state.products=[];
     state.productsLoaded=false;
     state.productSearch='';
+    state.orders=[];
+    state.ordersLoaded=false;
+    state.ordersError=false;
     state.view='home';
     render();toast('Expediente creado');
   }catch(e){
@@ -256,6 +267,10 @@ function home(){
     <button onclick="openAppointments()" class="card rounded-3xl p-5 text-left">
       <div class="font-semibold text-lg">Mis citas</div>
       <div class="text-sm text-stone-500">Consulta tus próximas citas registradas en Nimbo.</div>
+    </button>
+    <button onclick="openOrders()" class="card rounded-3xl p-5 text-left">
+      <div class="font-semibold text-lg">Mis pedidos</div>
+      <div class="text-sm text-stone-500">Revisa tus solicitudes, pagos y entregas.</div>
     </button>
     <button onclick="go('services')" class="card rounded-3xl p-5 text-left">
       <div class="font-semibold text-lg">Ver servicios y precios</div>
@@ -624,6 +639,78 @@ function appointments(){
 }
 
 
+function safeUberTracking(raw){
+  try{
+    const u=new URL(String(raw||'').trim());
+    const host=u.hostname.toLowerCase();
+    if(u.protocol==='https:' && ['uber.com','ubereats.com'].some(d=>host===d||host.endsWith('.'+d)))return u.href;
+  }catch(e){}
+  return '';
+}
+const patientOrderStates={
+  solicitado:'Solicitado',
+  recibido_consultorio:'Recibido en consultorio',
+  enviado:'En camino',
+  entregado:'Entregado'
+};
+async function openOrders(){
+  state.view='orders';
+  render();
+  await loadPatientOrders();
+}
+async function loadPatientOrders(){
+  const id=patientId();
+  const telefono=String(state.phone||state.patient?.telefono||state.patient?.telephone2||'')
+    .replace(/\D/g,'').slice(-10);
+  if(!id || telefono.length!==10)return toast('No pude identificar tu expediente');
+  setLoading(true,'Consultando tus pedidos…');
+  try{
+    const r=await api({action:'mis_pedidos',paciente_id:id,telefono});
+    if(r.ok!==true || !Array.isArray(r.pedidos))throw new Error('Respuesta inválida');
+    state.orders=r.pedidos;
+    state.ordersLoaded=true;
+    state.ordersError=false;
+    state.loading=false;
+    render();
+  }catch(e){
+    state.orders=[];
+    state.ordersLoaded=true;
+    state.ordersError=true;
+    state.loading=false;
+    render();
+    toast('No pude consultar tus pedidos');
+  }
+}
+function orders(){
+  const head=`<div class="flex items-center justify-between gap-3 mb-4">
+    <div><button onclick="go('home')" class="text-sm gold">← Inicio</button>
+      <h2 class="text-2xl font-semibold mt-2">Mis pedidos</h2></div>
+    <button onclick="loadPatientOrders()" class="border rounded-xl px-3 py-2 text-sm">Actualizar</button>
+  </div>`;
+  if(!state.ordersLoaded)return head+'<section class="card rounded-3xl p-5 text-stone-500">Consultando tus pedidos…</section>';
+  if(state.ordersError)return head+'<section class="card rounded-3xl p-5 text-stone-500">No pudimos cargar tus pedidos. Toca Actualizar para intentarlo de nuevo.</section>';
+  if(!state.orders.length)return head+'<section class="card rounded-3xl p-5 text-stone-500">Aún no tienes pedidos.</section>';
+  return head+'<div class="space-y-4">'+state.orders.map(o=>{
+    const items=Array.isArray(o.items)?o.items:[];
+    const url=safeUberTracking(o.rastreo_url);
+    const estado=patientOrderStates[o.estado_pedido]||'En proceso';
+    return `<article class="card rounded-3xl p-5">
+      <div class="flex justify-between gap-3">
+        <div><div class="text-xs gold font-semibold">PEDIDO</div>
+          <div class="font-medium text-sm mt-1 break-all">${escapeCatalogText(o.pedido_id)}</div></div>
+        <div class="text-right"><div class="font-semibold">${money(o.total)}</div>
+          <div class="text-xs text-stone-500">${escapeCatalogText(estado)}</div></div>
+      </div>
+      <div class="text-sm text-stone-600 mt-3">Pago: ${o.estado_pago==='pagado'?'Confirmado':'Pendiente'}
+        · ${o.tipo_entrega==='domicilio'?'Envío a domicilio':'Recoger en consultorio'}</div>
+      ${items.length?`<ul class="text-sm mt-3 space-y-1">${items.map(i=>`<li>${escapeCatalogText(i.nombre)} ×${Number(i.cantidad)||1}</li>`).join('')}</ul>`:''}
+      ${o.tipo_entrega==='domicilio'?`<div class="text-sm text-stone-500 mt-3">Envío: ${money(o.costo_envio)}</div>`:''}
+      ${url?`<a href="${escapeCatalogText(url)}" target="_blank" rel="noopener noreferrer"
+        class="btn block text-center rounded-2xl py-3 mt-4 font-semibold">Seguir entrega en Uber</a>`:''}
+    </article>`;
+  }).join('')+'</div>';
+}
+
 function addPatientOrderItem(id){
   const p=state.products.find(x=>String(x.id)===String(id));
   if(!p || !Number.isFinite(Number(p.precio)) || Number(p.precio)<=0)return toast('Producto no disponible');
@@ -676,6 +763,7 @@ async function submitPatientOrder(){
       tipo_entrega:delivery,direccion_entrega:address});
     if(r.ok!==true || String(r.pedido_id)!==pedidoId)throw new Error('Solicitud sin confirmar');
     state.orderItems=[];state.orderAddress='';state.orderDelivery='recoger';
+    state.ordersLoaded=false;
     state.loading=false;render();
     toast('Solicitud recibida. El consultorio te confirmará el total.');
   }catch(e){state.loading=false;render();toast('No pude enviar tu solicitud; inténtalo de nuevo');}
