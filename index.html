@@ -478,24 +478,42 @@ async function confirmRebooking(){
       return;
     }
 
-    const guardada = r?.usada===true || r?.reagendacion_usada===true || r?.nueva_fecha || r?.createdAt || r?.id;
-    if(!guardada && r?.ok===false){
+    if(r?.ok===false || r?.permitido===false){
       render();
       toast('No se pudo completar la reagendación');
       return;
     }
 
+    // Confirma la cita en Nimbo antes de mostrar éxito: una fila de la Data Table
+    // por sí sola no prueba que la cita se haya movido.
+    const consulta=await api({action:'listar_citas',paciente_id:patientId()});
+    const citas=Array.isArray(consulta?.citas)?consulta.citas:[];
+    const coinciden=(iso)=>{
+      const fecha=new Date(iso||'');
+      if(Number.isNaN(fecha.getTime()))return false;
+      const parts=Object.fromEntries(new Intl.DateTimeFormat('en-US',{
+        timeZone:'America/Mexico_City',year:'numeric',month:'2-digit',
+        day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'
+      }).formatToParts(fecha).map(p=>[p.type,p.value]));
+      return `${parts.year}-${parts.month}-${parts.day}`===x.fecha
+        && `${parts.hour}:${parts.minute}`===x.hora;
+    };
+    const nueva=citas.find(item=>appointmentId(item)===appointmentId(c));
+    const reflejada=nueva ? coinciden(nueva.starts_at)
+      : citas.some(item=>coinciden(item.starts_at))
+        && !citas.some(item=>appointmentId(item)===appointmentId(c));
+    state.appointments=citas;
+    state.appointmentsLoaded=true;
+    state.view='appointments';
     state.rebooking=null;
     state.slots=[];
     state.slot=null;
     state.selectedDate=null;
     state.calendarMonth=null;
-    state.appointmentsLoaded=false;
-    state.appointments=[];
-    state.view='appointments';
     render();
-    toast('Tu cita fue reagendada correctamente');
-    await loadAppointments();
+    toast(reflejada
+      ? 'Tu cita fue reagendada correctamente'
+      : 'No pude confirmar el cambio en Nimbo; contacta al consultorio');
   }catch(e){
     state.loading=false;
     render();
@@ -658,6 +676,18 @@ function setProductSearch(v){
   }
 }
 
+function catalogCategory(p){
+  const raw=p.categoria||p.category||p.product_category||p.productCategory||'';
+  const name=typeof raw==='object' ? String(raw?.nombre||raw?.name||'') : String(raw);
+  if(name.trim())return name.trim();
+  if(p.stockable===true || p.type==='product')return 'Productos';
+  return 'Servicios y estudios';
+}
+function escapeCatalogText(value){
+  return String(value??'').replace(/[&<>"']/g,ch=>({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[ch]));
+}
 function products(){
   if(!state.productsLoaded){
     return `<section class="card rounded-3xl p-6">
@@ -667,52 +697,65 @@ function products(){
     </section>`;
   }
 
-  const q=state.productSearch.trim().toLowerCase();
-  const rows=state.products.filter(p=>{
-    if(!q)return true;
-    return String(p.nombre||'').toLowerCase().includes(q);
-  });
+  const q=state.productSearch.trim().toLocaleLowerCase('es-MX');
+  const rows=state.products.filter(p=>
+    !q || String(p.nombre||'').toLocaleLowerCase('es-MX').includes(q)
+      || catalogCategory(p).toLocaleLowerCase('es-MX').includes(q)
+  );
+  const groups=new Map();
+  for(const p of rows){
+    const category=catalogCategory(p);
+    if(!groups.has(category))groups.set(category,[]);
+    groups.get(category).push(p);
+  }
+  const categories=[...groups.entries()].sort((a,b)=>a[0].localeCompare(b[0],'es-MX'));
+  const content=categories.map(([category,items])=>{
+    const letters=new Map();
+    for(const p of items.sort((a,b)=>String(a.nombre||'').localeCompare(String(b.nombre||''),'es-MX'))){
+      const first=String(p.nombre||'').trim().charAt(0).toLocaleUpperCase('es-MX');
+      const letter=/^[A-ZÁÉÍÓÚÑ]$/.test(first)?first:'#';
+      if(!letters.has(letter))letters.set(letter,[]);
+      letters.get(letter).push(p);
+    }
+    return `<details class="card rounded-3xl p-4" ${q?'open':''}>
+      <summary class="cursor-pointer font-semibold text-lg">${escapeCatalogText(category)} <span class="text-sm text-stone-500">(${items.length})</span></summary>
+      <div class="space-y-3 mt-4">
+        ${[...letters.entries()].map(([letter,products])=>`<details class="border border-stone-200 rounded-2xl p-3" ${q?'open':''}>
+          <summary class="cursor-pointer font-medium">${letter} <span class="text-xs text-stone-500">(${products.length})</span></summary>
+          <div class="space-y-3 mt-3">${products.map(p=>`
+            <article class="border border-stone-100 rounded-2xl p-4">
+              <div class="flex justify-between gap-4">
+                <div class="min-w-0">
+                  <h3 class="font-semibold">${escapeCatalogText(p.nombre||'Concepto')}</h3>
+                  ${p.sku?`<div class="text-xs text-stone-400 mt-1">SKU: ${escapeCatalogText(p.sku)}</div>`:''}
+                  ${p.stockable?`<div class="text-xs text-stone-400 mt-1">Inventario: ${Number(p.stock)<0?'Disponible':escapeCatalogText(p.stock)}</div>`:''}
+                </div>
+                <div class="font-semibold shrink-0">${money(p.precio)}</div>
+              </div>
+              <a href="${productWhatsAppUrl(p)}" target="_blank" rel="noopener"
+                class="btn block w-full rounded-2xl py-3 mt-4 text-center font-semibold">Solicitar por WhatsApp</a>
+            </article>`).join('')}</div>
+        </details>`).join('')}
+      </div>
+    </details>`;
+  }).join('');
 
   return `<div class="space-y-4">
     <div>
       <button onclick="go('home')" class="text-sm gold">← Inicio</button>
       <h2 class="text-2xl font-semibold mt-2">Productos y servicios</h2>
-      <p class="text-sm text-stone-500 mt-1">Catálogo activo conectado directamente con Nimbo.</p>
+      <p class="text-sm text-stone-500 mt-1">Explora por categoría o busca un concepto.</p>
     </div>
-
     <section class="card rounded-3xl p-4">
       <div class="flex gap-2">
-        <input id="productSearch"
-          value="${state.productSearch.replace(/"/g,'&quot;')}"
-          oninput="setProductSearch(this.value)"
-          class="w-full border rounded-2xl px-4 py-3"
+        <input id="productSearch" value="${escapeCatalogText(state.productSearch)}"
+          oninput="setProductSearch(this.value)" class="w-full border rounded-2xl px-4 py-3"
           placeholder="Buscar producto o servicio">
         <button onclick="loadProducts()" class="border rounded-2xl px-4 py-3 text-sm font-semibold">Actualizar</button>
       </div>
       <div class="text-xs text-stone-400 mt-2">${rows.length} de ${state.products.length} conceptos activos</div>
     </section>
-
-    ${rows.length?rows.map(p=>`
-      <article class="card rounded-2xl p-4">
-        <div class="flex justify-between gap-4">
-          <div class="min-w-0">
-            <h3 class="font-semibold">${p.nombre||'Concepto'}</h3>
-            ${p.sku?`<div class="text-xs text-stone-400 mt-1">SKU: ${p.sku}</div>`:''}
-            ${p.stockable?`<div class="text-xs text-stone-400 mt-1">Inventario: ${p.stock<0?'Disponible':p.stock}</div>`:''}
-          </div>
-          <div class="font-semibold shrink-0">${money(p.precio)}</div>
-        </div>
-
-        <a href="${productWhatsAppUrl(p)}"
-           target="_blank"
-           rel="noopener"
-           class="btn block w-full rounded-2xl py-3 mt-4 text-center font-semibold">
-          Solicitar por WhatsApp
-        </a>
-      </article>
-    `).join(''):`<section class="card rounded-3xl p-6 text-center text-stone-500">
-      No encontramos resultados con esa búsqueda.
-    </section>`}
+    ${content||`<section class="card rounded-3xl p-6 text-center text-stone-500">No encontramos resultados con esa búsqueda.</section>`}
   </div>`;
 }
 
