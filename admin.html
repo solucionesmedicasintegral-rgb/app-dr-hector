@@ -370,12 +370,11 @@ async function loadTomorrowAppointments(){
   }
 }
 
-function paymentStoreKey(c){
-  return `hector_pago_${c.id||c.cita_id||c.person_id||''}_${c.starts_at||''}`;
+function appointmentId(c){
+  return String(c.cita_id||c.id||'').trim();
 }
 function getPaymentState(c){
-  try{return localStorage.getItem(paymentStoreKey(c)) || 'pendiente';}
-  catch(e){return 'pendiente';}
+  return c.estado_pago || 'pendiente';
 }
 function paymentBadge(c){
   const s=getPaymentState(c);
@@ -385,27 +384,42 @@ function paymentBadge(c){
   if(s==='pendiente_transferencia') return `<span class="badge goldbg">Transferencia pendiente</span>`;
   return `<span class="badge goldbg">Pago pendiente</span>`;
 }
-async function markPaid(c){
-  if(!confirm('¿Confirmas que ya validaste el pago de esta cita?'))return;
-  setLoading(true,'Marcando pago…');
+async function savePaymentState(c,metodo){
+  const citaId=appointmentId(c);
+  if(!citaId)return toast('Esta cita no tiene ID de Nimbo; no se guardó el pago');
+  setLoading(true,'Guardando estado de pago…');
   try{
     const r=await core({
       action:'solicitar_pago',
-      paciente_id:String(c.person_id||''),
+      pin:state.pin,
+      cita_id:citaId,
+      paciente_id:String(c.person_id||c.paciente_id||''),
       telefono:String(c.telefono||''),
-      metodo_pago:'pagado',
+      email:String(c.email||''),
+      servicio_id:String(c.servicio_id||''),
+      metodo_pago:metodo,
       monto:Number(c.monto||0),
-      fecha:String(c.starts_at||'')
+      fecha:String(c.starts_at||''),
+      hora:String(c.hora||'')
     });
     state.loading=false;
-    if(r.ok===false){render();toast('No pude registrar el estado');return;}
-    try{localStorage.setItem(paymentStoreKey(c),'pagado')}catch(e){}
-    render();toast('Pago marcado como validado');
-  }catch(e){state.loading=false;render();toast('No pude registrar el pago');}
+    if(r.ok!==true || appointmentId(r)!==citaId){render();toast('No pude guardar el estado de pago');return;}
+    const estado=metodo==='transferencia'?'pendiente_transferencia'
+      :metodo==='liga'?'pendiente_liga':metodo;
+    for(const item of state.tomorrowAppointments||[]){
+      if(appointmentId(item)===citaId)item.estado_pago=estado;
+    }
+    render();toast('Estado de pago guardado');
+  }catch(e){state.loading=false;render();toast('No pude guardar el estado de pago');}
 }
-function setPendingType(c,type){
-  try{localStorage.setItem(paymentStoreKey(c),type)}catch(e){}
-  render();
+async function markPaid(c){
+  if(!confirm('¿Confirmas que ya validaste el pago de esta cita?'))return;
+  await savePaymentState(c,'pagado');
+}
+async function setPendingType(c,type){
+  const metodo=type==='pendiente_transferencia'?'transferencia'
+    :type==='pendiente_liga'?'liga':type;
+  await savePaymentState(c,metodo);
 }
 
 
