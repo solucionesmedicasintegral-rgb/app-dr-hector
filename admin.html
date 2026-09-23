@@ -393,7 +393,7 @@ function paymentBadge(c){
   if(s==='pendiente_transferencia') return `<span class="badge goldbg">Transferencia pendiente</span>`;
   return `<span class="badge goldbg">Pago pendiente</span>`;
 }
-async function savePaymentState(c,metodo){
+async function savePaymentState(c,metodo,monto,estadoPago){
   const citaId=appointmentId(c);
   if(!citaId)return toast('Esta cita no tiene ID de Nimbo; no se guardó el pago');
   setLoading(true,'Guardando estado de pago…');
@@ -407,23 +407,40 @@ async function savePaymentState(c,metodo){
       email:String(c.email||''),
       servicio_id:String(c.servicio_id||''),
       metodo_pago:metodo,
-      monto:Number(c.monto||0),
+      estado_pago:estadoPago||'',
+      monto:Number(monto??c.monto??0),
       fecha:String(c.starts_at||''),
       hora:String(c.hora||'')
     });
     state.loading=false;
     if(r.ok!==true || appointmentId(r)!==citaId){render();toast('No pude guardar el estado de pago');return;}
-    const estado=metodo==='transferencia'?'pendiente_transferencia'
-      :metodo==='liga'?'pendiente_liga':metodo;
+    const estado=String(r.estado_pago||'');
+    if(!['pagado','sin_pago','pendiente_liga','pendiente_transferencia'].includes(estado)){
+      render();toast('Core no confirmó el estado del pago');return;
+    }
     for(const item of state.tomorrowAppointments||[]){
-      if(appointmentId(item)===citaId)item.estado_pago=estado;
+      if(appointmentId(item)===citaId){
+        item.estado_pago=estado;
+        item.monto=Number(r.monto);
+        item.metodo_pago=String(r.metodo_pago||metodo);
+      }
     }
     render();toast('Estado de pago guardado');
   }catch(e){state.loading=false;render();toast('No pude guardar el estado de pago');}
 }
 async function markPaid(c){
-  if(!confirm('¿Confirmas que ya validaste el pago de esta cita?'))return;
-  await savePaymentState(c,'pagado');
+  const amountText=prompt('Monto recibido en pesos:','');
+  if(amountText===null)return;
+  const amount=Number(amountText.trim());
+  if(!amountText.trim()||!Number.isFinite(amount)||amount<=0)
+    return toast('Indica un monto mayor a cero');
+  const methodText=prompt('Método recibido: transferencia, liga, efectivo o tarjeta','transferencia');
+  if(methodText===null)return;
+  const metodo=methodText.trim().toLowerCase();
+  if(!['transferencia','liga','efectivo','tarjeta'].includes(metodo))
+    return toast('Elige un método de pago válido');
+  if(!confirm('¿Confirmas que recibiste '+money(amount)+' por '+metodo+'?'))return;
+  await savePaymentState(c,metodo,amount,'pagado');
 }
 async function setPendingType(c,type){
   const metodo=type==='pendiente_transferencia'?'transferencia'
