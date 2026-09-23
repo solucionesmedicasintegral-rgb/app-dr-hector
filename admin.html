@@ -403,7 +403,7 @@ async function savePaymentState(c,metodo){
       hora:String(c.hora||'')
     });
     state.loading=false;
-    if(r.ok===false){render();toast('No pude guardar el estado de pago');return;}
+    if(r.ok!==true || appointmentId(r)!==citaId){render();toast('No pude guardar el estado de pago');return;}
     const estado=metodo==='transferencia'?'pendiente_transferencia'
       :metodo==='liga'?'pendiente_liga':metodo;
     for(const item of state.tomorrowAppointments||[]){
