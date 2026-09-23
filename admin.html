@@ -63,7 +63,10 @@ let state = {
   orderItems:[],
   orderDelivery:'recoger',
   orderShippingCost:250,
-  orderAddress:''
+  orderAddress:'',
+  rebooking:null,
+  rebookingSlots:[],
+  rebookingSlot:-1
 };
 
 const money = n => new Intl.NumberFormat('es-MX',{
@@ -280,6 +283,9 @@ function selectPatientResult(i){
   state.orderAddress='';
   state.appointments=[];
   state.appointmentsLoaded=false;
+  state.rebooking=null;
+  state.rebookingSlots=[];
+  state.rebookingSlot=-1;
 
   render();
   toast('Paciente seleccionado');
@@ -486,6 +492,109 @@ async function copyConfirmMessage(c){
   try{await navigator.clipboard.writeText(buildConfirmMessage(c));toast('Mensaje copiado')}
   catch(e){toast('No pude copiar el mensaje')}
 }
+function adminAppointmentId(c){return String(c?.id ?? c?.cita_id ?? '');}
+function adminAppointmentDuration(c){
+  const minutes=(new Date(c?.ends_at).getTime()-new Date(c?.starts_at).getTime())/60000;
+  return Number.isFinite(minutes)&&minutes>0&&minutes<=240?Math.round(minutes):60;
+}
+function adminAppointmentMode(c){
+  const text=String(c?.servicio||c?.motivo||'').toLowerCase();
+  return /virtual|online/.test(text)?'virtual':'presencial';
+}
+function localAppointmentParts(iso){
+  const d=new Date(iso);
+  if(!Number.isFinite(d.getTime()))return null;
+  const parts=Object.fromEntries(new Intl.DateTimeFormat('en-US',{
+    timeZone:'America/Mexico_City',year:'numeric',month:'2-digit',
+    day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'
+  }).formatToParts(d).map(x=>[x.type,x.value]));
+  return {fecha:`${parts.year}-${parts.month}-${parts.day}`,hora:`${parts.hour}:${parts.minute}`};
+}
+async function openAdminRebooking(id){
+  const c=state.appointments.find(item=>adminAppointmentId(item)===String(id));
+  if(!c)return toast('No pude identificar la cita');
+  if((new Date(c.starts_at).getTime()-Date.now())<48*3600000)
+    return toast('Core permite reagendar con al menos 48 horas de anticipación');
+  state.rebooking=c;
+  state.rebookingSlots=[];
+  state.rebookingSlot=-1;
+  setLoading(true,'Buscando horarios disponibles…');
+  try{
+    const r=await core({
+      action:'consultar_disponibilidad',
+      modalidad:adminAppointmentMode(c),
+      duracion:adminAppointmentDuration(c)
+    });
+    state.rebookingSlots=Array.isArray(r.horarios)?r.horarios:[];
+    state.loading=false;
+    render();
+    if(!state.rebookingSlots.length)toast('No hay horarios disponibles');
+  }catch(e){
+    state.loading=false;
+    render();
+    toast('No pude consultar disponibilidad');
+  }
+}
+function adminRebookingPanel(){
+  const c=state.rebooking;
+  if(!c)return '';
+  const now=new Date(c.starts_at);
+  if(!Number.isFinite(now.getTime()))return '';
+  const options=state.rebookingSlots.map((slot,i)=>{
+    const label=`${slot.fecha} · ${slot.hora}`;
+    return `<option value="${i}" ${state.rebookingSlot===i?'selected':''}>${label}</option>`;
+  }).join('');
+  return `<section class="border border-sky-200 rounded-2xl p-4 mt-4 bg-sky-50">
+    <div class="font-semibold">Reprogramar: ${formatDateTimeMX(c.starts_at).fecha} · ${formatDateTimeMX(c.starts_at).hora}</div>
+    <p class="text-xs text-slate-600 mt-1">Solo se puede reagendar una vez y al menos 48 horas antes. Elige un horario disponible.</p>
+    <div class="flex flex-wrap gap-2 mt-3">
+      <select class="input flex-1 min-w-56" onchange="state.rebookingSlot=Number(this.value)">
+        <option value="-1">Selecciona fecha y hora</option>${options}
+      </select>
+      <button onclick="confirmAdminRebooking()" class="btn rounded-xl px-4 py-2">Confirmar cambio</button>
+      <button onclick="state.rebooking=null;render()" class="border rounded-xl px-4 py-2">Cerrar</button>
+    </div>
+  </section>`;
+}
+async function confirmAdminRebooking(){
+  const c=state.rebooking, slot=state.rebookingSlots[state.rebookingSlot];
+  if(!c||!slot)return toast('Selecciona un horario disponible');
+  if((new Date(c.starts_at).getTime()-Date.now())<48*3600000)
+    return toast('La ventana de 48 horas ya cerró');
+  if(!confirm(`¿Reagendar esta cita al ${slot.fecha} a las ${slot.hora}? Esta cita solo puede cambiarse una vez.`))return;
+  const patientId=String(state.patient?.id||'');
+  const originalId=adminAppointmentId(c);
+  setLoading(true,'Reagendando en Nimbo…');
+  try{
+    const r=await core({
+      action:'validar_reagendacion',cita_id:originalId,
+      starts_at:String(c.starts_at||''),paciente_id:patientId,
+      nueva_fecha:String(slot.fecha),nueva_hora:String(slot.hora),
+      duracion:adminAppointmentDuration(c)
+    });
+    if(r?.ok===false||r?.permitido===false){
+      state.loading=false;render();
+      return toast(r?.mensaje||'No se pudo reagendar la cita');
+    }
+    const result=await core({action:'listar_citas',paciente_id:patientId});
+    const citas=Array.isArray(result?.citas)?result.citas:[];
+    const actual=citas.find(item=>adminAppointmentId(item)===originalId);
+    const fecha=actual&&localAppointmentParts(actual.starts_at);
+    const changed=fecha?.fecha===slot.fecha&&fecha?.hora===slot.hora;
+    state.appointments=citas;
+    state.appointmentsLoaded=true;
+    state.rebooking=null;
+    state.rebookingSlots=[];
+    state.rebookingSlot=-1;
+    state.loading=false;
+    render();
+    toast(changed?'Cita reagendada en Nimbo':'No pude confirmar el cambio en Nimbo; revisa la cita antes de intentarlo de nuevo');
+  }catch(e){
+    state.loading=false;render();
+    toast('No pude confirmar el cambio; revisa la cita antes de intentarlo de nuevo');
+  }
+}
+
 function appointmentCards(){
   if(!state.patient)return `<div class="border border-dashed rounded-2xl p-5 text-sm text-slate-500">Busca un paciente para consultar sus citas.</div>`;
   if(!state.appointmentsLoaded)return `<button onclick="loadAppointments()" class="btn rounded-2xl px-5 py-3 font-semibold">Consultar próximas citas</button>`;
@@ -503,7 +612,7 @@ function appointmentCards(){
       </div>
       <div class="grid sm:grid-cols-2 gap-2 mt-4">
         <a href="${whatsappConfirmUrl(c)}" target="_blank" rel="noopener" class="border rounded-xl py-2 px-3 text-center text-sm font-medium">Confirmar por WhatsApp</a>
-        <button disabled class="border rounded-xl py-2 px-3 text-sm text-slate-400">Reprogramar / cancelar — siguiente paso</button>
+        <button onclick="openAdminRebooking('${adminAppointmentId(c)}')" class="border rounded-xl py-2 px-3 text-sm">Reprogramar cita</button>
       </div>
     </div>`;
   }).join('')}</div>`;
@@ -517,7 +626,7 @@ function citas(){
         <div><h3 class="font-semibold text-lg">Próximas citas</h3><p class="text-sm text-slate-500">Consulta las citas futuras del paciente seleccionado.</p></div>
         ${state.patient?`<button onclick="loadAppointments()" class="border rounded-xl px-4 py-2 text-sm">Actualizar</button>`:''}
       </div>
-      <div class="mt-4">${appointmentCards()}</div>
+      <div class="mt-4">${appointmentCards()}${adminRebookingPanel()}</div>
     </section>
   </div>`;
 }
@@ -1137,6 +1246,9 @@ function logout(){
   state.orderDelivery='recoger';
   state.orderShippingCost=ORDER_SHIPPING;
   state.orderAddress='';
+  state.rebooking=null;
+  state.rebookingSlots=[];
+  state.rebookingSlot=-1;
   state.view='resumen';
   render();
 }
