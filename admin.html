@@ -62,6 +62,7 @@ let state = {
   ordersLoaded:false,
   orderItems:[],
   orderDelivery:'recoger',
+  orderShippingCost:250,
   orderAddress:''
 };
 
@@ -862,7 +863,15 @@ function orderSubtotal(){
   return state.orderItems.reduce((sum,item)=>sum+item.cantidad*item.precio_unitario,0);
 }
 function orderShipping(){
-  return state.orderDelivery==='domicilio'?ORDER_SHIPPING:0;
+  return state.orderDelivery==='domicilio'?state.orderShippingCost:0;
+}
+function setOrderShippingCost(value){
+  const amount=Number(String(value).trim());
+  if(!Number.isInteger(amount) || amount<0 || amount>2000){
+    render();toast('El envío debe ser de $0 a $2,000 en pesos enteros');return;
+  }
+  state.orderShippingCost=amount;
+  render();
 }
 function addOrderItem(){
   const id=document.querySelector('#orderProduct')?.value;
@@ -900,6 +909,9 @@ async function createOrder(){
   if(!state.orderItems.length)return toast('Agrega al menos un producto');
   if(state.orderDelivery==='domicilio' && !state.orderAddress.trim())
     return toast('Indica la dirección de entrega');
+  if(state.orderDelivery==='domicilio' &&
+     (!Number.isInteger(state.orderShippingCost) || state.orderShippingCost<0 || state.orderShippingCost>2000))
+    return toast('El envío debe ser de $0 a $2,000');
   const total=orderSubtotal()+orderShipping();
   if(!confirm('¿Registrar este pedido por '+money(total)+'?'))return;
   const pedidoId='PED-'+Date.now()+'-'+crypto.randomUUID().slice(0,8);
@@ -921,6 +933,7 @@ async function createOrder(){
       throw new Error('Core no confirmó el pedido');
     state.orderItems=[];
     state.orderAddress='';
+    state.orderShippingCost=ORDER_SHIPPING;
     state.loading=false;
     await loadOrders();
     toast('Pedido registrado');
@@ -1018,10 +1031,13 @@ function pedidos(){
         <label class="text-sm">Entrega
           <select class="input mt-1" onchange="state.orderDelivery=this.value;render()">
             <option value="recoger" ${state.orderDelivery==='recoger'?'selected':''}>Recoger en consultorio</option>
-            <option value="domicilio" ${state.orderDelivery==='domicilio'?'selected':''}>Envío a domicilio (+$250)</option>
+            <option value="domicilio" ${state.orderDelivery==='domicilio'?'selected':''}>Envío a domicilio</option>
           </select>
         </label>
-        ${state.orderDelivery==='domicilio'?`<label class="flex-1 min-w-60 text-sm">Dirección de entrega
+        ${state.orderDelivery==='domicilio'?`<label class="w-44 text-sm">Costo de envío (MXN)
+          <input class="input mt-1" type="number" min="0" max="2000" step="1"
+            value="${state.orderShippingCost}" onchange="setOrderShippingCost(this.value)"></label>
+          <label class="flex-1 min-w-60 text-sm">Dirección de entrega
           <input class="input mt-1" value="${escapeCatalogText(state.orderAddress)}"
             oninput="state.orderAddress=this.value" placeholder="Dirección completa"></label>`:''}
       </div>
@@ -1107,6 +1123,7 @@ function logout(){
   state.ordersLoaded=false;
   state.orderItems=[];
   state.orderDelivery='recoger';
+  state.orderShippingCost=ORDER_SHIPPING;
   state.orderAddress='';
   state.view='resumen';
   render();
