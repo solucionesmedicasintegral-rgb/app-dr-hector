@@ -345,6 +345,16 @@ async function loadAppointments(){
     const r=await core({action:'listar_citas',paciente_id:String(state.patient.id)});
     state.loading=false;
     state.appointments=Array.isArray(r.citas)?r.citas:[];
+    const telefono=String(state.patient?.telefono||'').replace(/\D/g,'').slice(-10);
+    if(telefono.length===10 && state.appointments.length){
+      try{
+        const pagos=await core({action:'mis_pagos',paciente_id:String(state.patient.id),telefono});
+        if(pagos?.ok===true && Array.isArray(pagos.pagos)){
+          const porCita=new Map(pagos.pagos.map(p=>[String(p.cita_id),p]));
+          state.appointments=state.appointments.map(c=>({...c,...(porCita.get(appointmentId(c))||{})}));
+        }
+      }catch(e){ /* Mantener visibles las citas si no responde el estado de pagos. */ }
+    }
     state.appointmentsLoaded=true;
     render();
     if(!state.appointments.length)toast('No hay citas futuras para este paciente');
@@ -402,7 +412,7 @@ function paymentBadge(c){
   if(s==='sin_pago') return `<span class="badge gray">Sin pago</span>`;
   if(s==='pendiente_liga') return `<span class="badge goldbg">Pendiente liga</span>`;
   if(s==='pendiente_transferencia') return `<span class="badge goldbg">Transferencia pendiente</span>`;
-  return `<span class="badge goldbg">Pago pendiente</span>`;
+  return `<span class="badge gray">Pago por consultar</span>`;
 }
 async function savePaymentState(c,metodo,monto,estadoPago){
   const citaId=appointmentId(c);
@@ -486,7 +496,6 @@ function tomorrowCards(){
         </div>
         <div class="flex gap-2 items-start flex-wrap">
           <span class="badge goldbg">Mañana</span>
-          ${paymentBadge(c)}
         </div>
       </div>
       <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 mt-4">
@@ -690,6 +699,7 @@ function appointmentCards(){
         <div>
           <div class="font-semibold">${c.servicio||c.motivo||'Cita'}</div>
           <div class="text-sm text-slate-600 mt-1">${f.fecha} · ${f.hora}</div>
+          <div class="mt-2">${paymentBadge(c)}</div>
           ${c.status?`<div class="text-xs text-slate-400 mt-1">Estado: ${c.status}</div>`:''}
         </div>
         <span class="badge green h-fit">Nimbo</span>
