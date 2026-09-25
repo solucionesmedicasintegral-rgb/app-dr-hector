@@ -77,6 +77,11 @@ let state={
   orders:[],
   ordersLoaded:false,
   ordersError:false,
+  medicalAccess:null,
+  medicalAccessExpires:0,
+  medicalDocuments:[],
+  medicalDocumentsLoaded:false,
+  medicalAccessRequested:false,
   products:[],
   productsLoaded:false,
   productSearch:'',
@@ -158,6 +163,7 @@ function render(){
   else if(state.view==='services')h=services();
   else if(state.view==='appointments')h=appointments();
   else if(state.view==='orders')h=orders();
+  else if(state.view==='medical')h=medicalDocumentsView();
   else if(state.view==='reschedule')h=reschedule();
   else if(state.view==='products')h=products();
   else if(state.view==='book')h=book();
@@ -191,6 +197,11 @@ async function findPatient(){
       state.orders=[];
       state.ordersLoaded=false;
       state.ordersError=false;
+      state.medicalAccess=null;
+      state.medicalAccessExpires=0;
+      state.medicalDocuments=[];
+      state.medicalDocumentsLoaded=false;
+      state.medicalAccessRequested=false;
       state.products=[];
       state.productsLoaded=false;
       state.productSearch='';
@@ -272,6 +283,10 @@ function home(){
       <div class="font-semibold text-lg">Mis pedidos</div>
       <div class="text-sm text-stone-500">Revisa tus solicitudes, pagos y entregas.</div>
     </button>
+    <button onclick="openMedicalDocuments()" class="card rounded-3xl p-5 text-left">
+      <div class="font-semibold text-lg">Mis indicaciones médicas</div>
+      <div class="text-sm text-stone-500">Consulta las órdenes de laboratorio, procedimientos y recetas que el consultorio haya compartido contigo.</div>
+    </button>
     <button onclick="go('services')" class="card rounded-3xl p-5 text-left">
       <div class="font-semibold text-lg">Ver servicios y precios</div>
       <div class="text-sm text-stone-500">Consulta el tarifario disponible.</div>
@@ -291,6 +306,116 @@ function patientId(){
     state.patient?.patient_id ||
     ''
   );
+}
+
+function medicalAccessValid(){
+  return !!state.medicalAccess && Date.now()<state.medicalAccessExpires;
+}
+
+function openMedicalDocuments(){
+  state.view='medical';
+  render();
+  if(medicalAccessValid()&&!state.medicalDocumentsLoaded)loadMedicalDocuments();
+}
+
+// The server must send the code only to the verified address on the Nimbo record.
+// A patient ID and a phone number alone must never authorize medical data.
+async function requestMedicalAccess(){
+  if(!patientId())return toast('No pude identificar tu expediente');
+  setLoading(true,'Solicitando código de acceso…');
+  try{
+    const r=await api({action:'solicitar_acceso_indicaciones',paciente_id:patientId()});
+    state.loading=false;
+    if(r?.ok!==true)throw new Error('No se pudo enviar el código');
+    state.medicalAccessRequested=true;
+    render();
+    toast('Revisa el correo registrado en tu expediente');
+  }catch(e){
+    state.loading=false;
+    render();
+    toast('No pude enviar el código. Contacta al consultorio.');
+  }
+}
+
+async function verifyMedicalAccess(){
+  const code=String(document.querySelector('#medicalCode')?.value||'').trim();
+  if(!/^\d{6}$/.test(code))return toast('Ingresa el código de 6 dígitos');
+  setLoading(true,'Verificando tu identidad…');
+  try{
+    const r=await api({action:'verificar_acceso_indicaciones',paciente_id:patientId(),codigo:code});
+    state.loading=false;
+    if(r?.ok!==true||typeof r.token!=='string'||r.token.length<24||
+       !Number.isFinite(Number(r.expires_in))||Number(r.expires_in)<=0)
+      throw new Error('Código no válido');
+    state.medicalAccess=r.token;
+    state.medicalAccessExpires=Date.now()+Number(r.expires_in)*1000;
+    state.medicalDocumentsLoaded=false;
+    render();
+    await loadMedicalDocuments();
+  }catch(e){
+    state.loading=false;
+    render();
+    toast('Código incorrecto o vencido');
+  }
+}
+
+async function loadMedicalDocuments(){
+  if(!medicalAccessValid()){
+    state.medicalAccess=null;
+    state.medicalDocuments=[];
+    state.medicalDocumentsLoaded=false;
+    render();
+    return;
+  }
+  setLoading(true,'Consultando indicaciones médicas…');
+  try{
+    // The server derives the patient from the short-lived token, verifies
+    // ownership of each consultation, and returns only released documents.
+    const r=await api({action:'mis_indicaciones',token:state.medicalAccess});
+    if(r?.ok!==true||!Array.isArray(r.consultas))throw new Error('Respuesta inválida');
+    state.loading=false;
+    state.medicalDocuments=r.consultas;
+    state.medicalDocumentsLoaded=true;
+    render();
+  }catch(e){
+    state.loading=false;
+    state.medicalDocumentsLoaded=false;
+    render();
+    toast('No pude consultar las indicaciones. Intenta de nuevo.');
+  }
+}
+
+function medicalList(title,rows){
+  if(!Array.isArray(rows)||!rows.length)return '';
+  return `<div class="mt-4"><h4 class="font-semibold">${title}</h4><ul class="mt-2 space-y-2">${rows.map(row=>{
+    const name=escapeCatalogText(row.nombre||'');
+    const detail=escapeCatalogText(row.indicaciones||'');
+    return `<li class="rounded-xl bg-stone-50 p-3"><div class="font-medium">${name}</div>${detail?`<p class="text-sm text-stone-600 mt-1 whitespace-pre-wrap">${detail}</p>`:''}</li>`;
+  }).join('')}</ul></div>`;
+}
+
+function medicalDocumentsView(){
+  const header=`<section class="card rounded-3xl p-5"><h2 class="text-2xl font-semibold">Mis indicaciones médicas</h2>
+    <p class="text-sm text-stone-500 mt-2">Órdenes de laboratorio, procedimientos y recetas que el consultorio haya compartido contigo.</p></section>`;
+  if(!medicalAccessValid())return `<div class="space-y-4">${header}<section class="card rounded-3xl p-5">
+    <h3 class="font-semibold">Confirma tu identidad</h3><p class="text-sm text-stone-600 mt-2">Te enviaremos un código al correo registrado en tu expediente para proteger tu información médica.</p>
+    <button onclick="requestMedicalAccess()" class="btn w-full rounded-2xl py-3 mt-4 font-semibold">Enviar código</button>
+    ${state.medicalAccessRequested?`<label for="medicalCode" class="block text-sm font-medium mt-5">Código de 6 dígitos</label>
+      <input id="medicalCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" class="w-full border rounded-2xl px-4 py-3 mt-2" placeholder="000000">
+      <button onclick="verifyMedicalAccess()" class="w-full border rounded-2xl py-3 mt-3 font-semibold">Ver mis indicaciones</button>`:''}
+  </section></div>`;
+  const cards=state.medicalDocuments.map(c=>{
+    const fecha=escapeCatalogText(c.fecha||'');
+    const labs=medicalList('Estudios de laboratorio e imágenes',c.estudios);
+    const procedures=medicalList('Procedimientos',c.procedimientos);
+    const prescription=medicalList('Receta de medicamentos',c.medicamentos);
+    if(!labs&&!procedures&&!prescription)return '';
+    return `<section class="card rounded-3xl p-5"><h3 class="font-semibold">Consulta ${fecha}</h3>${labs}${procedures}${prescription}</section>`;
+  }).filter(Boolean).join('');
+  return `<div class="space-y-4">${header}${cards||
+    (state.medicalDocumentsLoaded?'<section class="card rounded-3xl p-5 text-stone-600">Todavía no hay indicaciones compartidas contigo.</section>':'')}
+    <button onclick="loadMedicalDocuments()" class="w-full border rounded-2xl py-3">Actualizar indicaciones</button>
+    <p class="text-xs text-stone-500 px-2">Sigue siempre las indicaciones del médico. Si algo no coincide, consulta al consultorio.</p></div>`;
 }
 
 function formatAppointmentDate(iso){
