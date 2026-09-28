@@ -24,6 +24,31 @@ body{background:var(--cream);font-family:Inter,system-ui,sans-serif;color:#24242
 .btn:hover{background:#1d2a0e}
 .btn:disabled{opacity:.55;cursor:not-allowed}
 .card{background:white;border:1px solid #e8e3d8;box-shadow:0 8px 24px #26351412}
+.home-shell{display:grid;gap:18px}
+.home-hero{position:relative;overflow:hidden;background:linear-gradient(145deg,#ffffff 0%,#fbfaf6 100%)}
+.home-hero::after{content:"";position:absolute;width:150px;height:150px;border-radius:999px;background:rgba(215,167,44,.10);right:-55px;top:-65px}
+.home-kicker{display:inline-flex;align-items:center;gap:7px;border:1px solid #e5dfcf;background:#fffdf7;border-radius:999px;padding:6px 10px;font-size:12px;color:#5d644f}
+.home-dot{width:7px;height:7px;border-radius:999px;background:#5d7d37;box-shadow:0 0 0 4px #edf3e6}
+.home-grid{display:grid;grid-template-columns:1fr;gap:12px}
+.home-action{position:relative;overflow:hidden;min-height:132px;transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease}
+.home-action:active{transform:scale(.99)}
+@media (hover:hover){
+  .home-action:hover{transform:translateY(-2px);box-shadow:0 14px 32px #26351418;border-color:#ddd4c2}
+  .home-primary:hover{box-shadow:0 22px 48px #26351430}
+}
+.home-action-icon{width:42px;height:42px;border-radius:14px;display:grid;place-items:center;background:#f4f1e8;color:var(--olive);font-size:21px;flex:0 0 auto}
+.home-action-arrow{position:absolute;right:18px;top:18px;color:#8a8c83;font-size:18px}
+.home-primary{min-height:164px;box-shadow:0 18px 40px #26351424}
+.home-primary .home-action-icon{background:#ffffff1a;color:#f6d777;border:1px solid #ffffff2e}
+.home-section-title{font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#8a8375;padding:0 2px}
+.home-section-copy{font-size:14px;color:#78756d;margin-top:2px;padding:0 2px}
+.home-mini{display:flex;align-items:center;gap:12px}
+.home-mini-copy{min-width:0}
+.home-mini-copy p{overflow:hidden;text-overflow:ellipsis}
+@media (min-width:700px){
+  .home-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .home-primary{grid-column:1/-1}
+}
 .navbtn.active{color:var(--gold)}
 .calendar-day{min-height:52px;border:1px solid #ece8df;background:white;border-radius:14px;position:relative}
 .calendar-day.has-slots{border-color:#d9c58a;background:#fffdf5}
@@ -122,9 +147,10 @@ function loader(){
 }
 
 function shell(content){
+  const wide=state.view==='home';
   return `<div class="min-h-screen pb-24">
     <header class="brand text-white px-5 pt-7 pb-8 rounded-b-[32px]">
-      <div class="max-w-xl mx-auto flex items-center gap-3">
+      <div class="${wide?'max-w-4xl':'max-w-xl'} mx-auto flex items-center gap-3">
         <img src="assets/logo-paciente.png" class="w-14 h-14 rounded-2xl" alt="Logo Dr. Héctor">
         <div>
           <div class="text-xs opacity-70">Tu espacio de salud</div>
@@ -132,7 +158,7 @@ function shell(content){
         </div>
       </div>
     </header>
-    <main class="max-w-xl mx-auto p-4 -mt-3">${content}</main>
+    <main class="${wide?'max-w-4xl':'max-w-xl'} mx-auto p-4 -mt-3">${content}</main>
     ${state.patient && state.view!=='success'?nav():''}
     ${loader()}
   </div>`;
@@ -252,34 +278,85 @@ async function createPatient(){
   }
 }
 
+function homeIcon(kind){
+  const icons={
+    appointment:'<svg viewBox="0 0 24 24" class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="5.5" width="16" height="14" rx="2.5"></rect><path d="M8 3.5v4M16 3.5v4M4 9.5h16"></path></svg>',
+    orders:'<svg viewBox="0 0 24 24" class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 8.5 12 4l8 4.5v7L12 20l-8-4.5z"></path><path d="M4 8.5 12 13l8-4.5M12 13v7"></path></svg>',
+    services:'<svg viewBox="0 0 24 24" class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 4v4a5 5 0 0 0 10 0V4"></path><path d="M5 4h4M15 4h4M12 13v2.5a4.5 4.5 0 0 0 9 0V13"></path><circle cx="21" cy="11" r="1.6"></circle></svg>',
+    products:'<svg viewBox="0 0 24 24" class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 8h12l1 12H5z"></path><path d="M9 9V7a3 3 0 0 1 6 0v2"></path></svg>',
+    plus:'<svg viewBox="0 0 24 24" class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"></path></svg>'
+  };
+  return icons[kind]||'';
+}
+
 function home(){
-  return `<div class="grid gap-4">
-    <section class="card rounded-3xl p-5">
-      <p class="text-sm text-stone-500">Hola</p>
-      <h2 class="text-2xl font-semibold">${state.patient.nombre||state.patient.first_name}</h2>
-      <p class="text-sm text-stone-500 mt-1">Tu expediente está conectado con Nimbo.</p>
+  const nombre=state.patient.nombre||state.patient.first_name||'Paciente';
+  return `<div class="home-shell">
+    <section class="card home-hero rounded-[28px] p-5 sm:p-6">
+      <div class="relative z-[1]">
+        <span class="home-kicker"><span class="home-dot"></span> Expediente conectado</span>
+        <p class="text-sm text-stone-500 mt-4">Hola</p>
+        <h2 class="text-2xl sm:text-3xl font-semibold text-stone-800 leading-tight">${nombre}</h2>
+        <p class="text-sm text-stone-500 mt-2 max-w-lg">Desde aquí puedes gestionar tus citas, pedidos y servicios con el consultorio del Dr. Héctor.</p>
+      </div>
     </section>
-    <button onclick="go('book')" class="brand text-white text-left rounded-3xl p-6">
-      <div class="gold text-sm">Agenda en tiempo real</div>
-      <div class="text-2xl font-semibold mt-1">Agendar una cita</div>
-      <div class="opacity-70 text-sm mt-2">Consulta disponibilidad real del Dr. Héctor.</div>
-    </button>
-    <button onclick="openAppointments()" class="card rounded-3xl p-5 text-left">
-      <div class="font-semibold text-lg">Mis citas</div>
-      <div class="text-sm text-stone-500">Consulta tus próximas citas registradas en Nimbo.</div>
-    </button>
-    <button onclick="openOrders()" class="card rounded-3xl p-5 text-left">
-      <div class="font-semibold text-lg">Mis pedidos</div>
-      <div class="text-sm text-stone-500">Revisa tus solicitudes, pagos y entregas.</div>
-    </button>
-    <button onclick="go('services')" class="card rounded-3xl p-5 text-left">
-      <div class="font-semibold text-lg">Ver servicios y precios</div>
-      <div class="text-sm text-stone-500">Consulta el tarifario disponible.</div>
-    </button>
-    <button onclick="openProducts()" class="card rounded-3xl p-5 text-left">
-      <div class="font-semibold text-lg">Productos y servicios</div>
-      <div class="text-sm text-stone-500">Consulta el catálogo activo conectado con Nimbo.</div>
-    </button>
+
+    <div>
+      <div class="home-section-title mb-2">Acción principal</div>
+      <button onclick="go('book')" class="brand home-action home-primary text-white text-left rounded-[28px] p-5 sm:p-6 w-full">
+        <span class="home-action-arrow text-white/60">↗</span>
+        <div class="home-action-icon">${homeIcon('plus')}</div>
+        <div class="gold text-xs font-semibold mt-4">AGENDA EN TIEMPO REAL</div>
+        <div class="text-2xl font-semibold mt-1">Agendar una cita</div>
+        <div class="opacity-70 text-sm mt-2 max-w-md">Consulta disponibilidad real y elige el horario que mejor te funcione.</div>
+      </button>
+    </div>
+
+    <div>
+      <div class="home-section-title">Tu seguimiento</div>
+      <div class="home-section-copy mb-3">Consulta y da seguimiento a tus citas, pedidos y entregas.</div>
+      <div class="home-grid">
+        <button onclick="openAppointments()" class="card home-action rounded-[24px] p-5 text-left">
+          <span class="home-action-arrow">›</span>
+          <div class="home-action-icon">${homeIcon('appointment')}</div>
+          <div class="font-semibold text-lg mt-4">Mis citas</div>
+          <div class="text-sm text-stone-500 mt-1 pr-6">Revisa tus próximas citas registradas en Nimbo.</div>
+        </button>
+        <button onclick="openOrders()" class="card home-action rounded-[24px] p-5 text-left">
+          <span class="home-action-arrow">›</span>
+          <div class="home-action-icon">${homeIcon('orders')}</div>
+          <div class="font-semibold text-lg mt-4">Mis pedidos</div>
+          <div class="text-sm text-stone-500 mt-1 pr-6">Consulta solicitudes, pagos y entregas.</div>
+        </button>
+      </div>
+    </div>
+
+    <div>
+      <div class="home-section-title">Explorar</div>
+      <div class="home-section-copy mb-3">Conoce los servicios disponibles y realiza pedidos fácilmente.</div>
+      <div class="home-grid">
+        <button onclick="go('services')" class="card home-action rounded-[24px] p-5 text-left">
+          <span class="home-action-arrow">›</span>
+          <div class="home-mini">
+            <div class="home-action-icon">${homeIcon('services')}</div>
+            <div class="home-mini-copy">
+              <div class="font-semibold text-lg">Servicios y precios</div>
+              <p class="text-sm text-stone-500 mt-1 pr-5">Consulta el tarifario disponible.</p>
+            </div>
+          </div>
+        </button>
+        <button onclick="openProducts()" class="card home-action rounded-[24px] p-5 text-left">
+          <span class="home-action-arrow">›</span>
+          <div class="home-mini">
+            <div class="home-action-icon">${homeIcon('products')}</div>
+            <div class="home-mini-copy">
+              <div class="font-semibold text-lg">Productos y servicios</div>
+              <p class="text-sm text-stone-500 mt-1 pr-5">Explora el catálogo activo conectado con Nimbo.</p>
+            </div>
+          </div>
+        </button>
+      </div>
+    </div>
   </div>`;
 }
 
