@@ -1,0 +1,951 @@
+{
+  "name": "HECTOR - Indicaciones Paciente - PRUEBA",
+  "nodes": [
+    {
+      "id": "a5ca6055-2919-4054-970c-1b63db924174",
+      "name": "Pedir código",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "hector-indicaciones-solicitar",
+        "responseMode": "lastNode",
+        "responseData": "firstEntryJson",
+        "options": {
+          "allowedOrigins": "https://solucionesmedicasintegral-rgb.github.io"
+        }
+      },
+      "webhookId": "e612fab5-03b0-4d1d-a1d9-c72ddee198fe"
+    },
+    {
+      "id": "9d09bfac-d60f-426c-b2ee-2d05a4b9d386",
+      "name": "Validar petición",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const b=$('Pedir código').first().json.body||{};\nconst paciente_id=String(b.paciente_id||'').trim();\nconst telefono=String(b.telefono||'').replace(/\\D/g,'').slice(-10);\nif(!/^\\d{1,15}$/.test(paciente_id)||!/^[0-9]{10}$/.test(telefono)) throw new Error('Solicitud inválida');\nreturn [{json:{paciente_id,telefono}}];"
+      }
+    },
+    {
+      "id": "35b04885-e05b-4f5f-826f-73fcbf5c289a",
+      "name": "Consultar frecuencia",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "QKdTzTdm0u25iLaW",
+          "mode": "list",
+          "cachedResultName": "accesos_indicaciones_hector",
+          "cachedResultUrl": "/projects/YFzT1sCVRuwyWi9e/datatables/QKdTzTdm0u25iLaW"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "paciente_id",
+              "keyValue": "={{ $('Validar petición').first().json.paciente_id }}"
+            }
+          ]
+        },
+        "returnAll": false,
+        "limit": 1
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "51c19e60-461e-4f3f-8300-4ab623d9c74e",
+      "name": "Limitar solicitud",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const prev=$input.first()?.json||{};\nif(prev.sent_at && Date.now()-Date.parse(prev.sent_at)<5*60*1000)\n  throw new Error('Espera cinco minutos antes de pedir otro código');\nreturn [{json:$('Validar petición').first().json}];"
+      }
+    },
+    {
+      "id": "2f33e433-7ab6-4dce-918f-3646474f4364",
+      "name": "Buscar en Core",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://solucionesmedicasintegral.app.n8n.cloud/webhook/hector-app-core",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({action:'buscar_paciente',telefono:$json.telefono}) }}",
+        "options": {
+          "timeout": 15000
+        }
+      }
+    },
+    {
+      "id": "fadea139-1839-4926-bf99-fe18b4462d87",
+      "name": "Verificar expediente",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const result=$input.first()?.json||{};\nconst p=result.ok===true&&result.encontrado===true?result.paciente:null;\nconst requested=$('Validar petición').first().json;\nconst id=String(p?.id||p?.person_id||p?.patient_id||'');\nconst email=String(p?.email||'').trim().toLowerCase();\nif(id!==requested.paciente_id||!/^\\S+@\\S+\\.\\S+$/.test(email))\n  throw new Error('Expediente sin correo verificable');\nreturn [{json:{paciente_id:id,email}}];"
+      }
+    },
+    {
+      "id": "3e9dcd95-ea81-4927-a6a7-45b4f286bfd8",
+      "name": "Aleatorio OTP",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 1,
+      "position": [
+        1320,
+        0
+      ],
+      "parameters": {
+        "action": "generate",
+        "dataPropertyName": "random_hex",
+        "encodingType": "hex",
+        "stringLength": 16
+      }
+    },
+    {
+      "id": "a282db6e-1f54-4983-a031-267589245123",
+      "name": "Crear código",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const raw=String($input.first().json.random_hex||'');\nif(!/^[0-9a-f]{16,}$/i.test(raw)) throw new Error('Generación de código no válida');\nconst otp=String(Number(BigInt('0x'+raw.slice(0,13))%1000000n)).padStart(6,'0');\nreturn [{json:{...$('Verificar expediente').first().json,otp}}];"
+      }
+    },
+    {
+      "id": "dcac9894-cc8f-4c11-a5ae-78533175ae33",
+      "name": "Aleatorio salt",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 1,
+      "position": [
+        1760,
+        0
+      ],
+      "parameters": {
+        "action": "generate",
+        "dataPropertyName": "salt",
+        "encodingType": "hex",
+        "stringLength": 32
+      }
+    },
+    {
+      "id": "e6b2b722-4122-4167-ba51-3ed70a4179d8",
+      "name": "Hash OTP",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 1,
+      "position": [
+        1980,
+        0
+      ],
+      "parameters": {
+        "action": "hash",
+        "dataPropertyName": "otp_hash",
+        "type": "SHA256",
+        "value": "={{ $json.salt + $('Crear código').first().json.otp }}"
+      }
+    },
+    {
+      "id": "77fbaef6-0b04-41bb-89c9-05b5e93be890",
+      "name": "Guardar OTP",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        2200,
+        0
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "QKdTzTdm0u25iLaW",
+          "mode": "list",
+          "cachedResultName": "accesos_indicaciones_hector",
+          "cachedResultUrl": "/projects/YFzT1sCVRuwyWi9e/datatables/QKdTzTdm0u25iLaW"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "paciente_id",
+              "keyValue": "={{ $('Verificar expediente').first().json.paciente_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "paciente_id": "={{ $('Verificar expediente').first().json.paciente_id }}",
+            "otp_hash": "={{ $('Hash OTP').first().json.otp_hash }}",
+            "otp_salt": "={{ $('Aleatorio salt').first().json.salt }}",
+            "otp_expires": "={{ new Date(Date.now()+10*60*1000).toISOString() }}",
+            "attempts": 0,
+            "sent_at": "={{ new Date().toISOString() }}",
+            "session_hash": "",
+            "session_expires": ""
+          }
+        }
+      }
+    },
+    {
+      "id": "44a1a5f9-462c-48ff-bff5-204c98a253f8",
+      "name": "Enviar OTP Gmail - Dr Héctor",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2420,
+        0
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ $('Verificar expediente').first().json.email }}",
+        "subject": "Tu código de acceso · Mi Salud",
+        "message": "={{ 'Tu código de acceso es '+$('Crear código').first().json.otp+'. Vence en 10 minutos. Si no lo solicitaste, ignora este correo.' }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "842f6dc3-14c4-4ab0-ae3a-357bb29351eb",
+      "name": "Respuesta solicitud",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{json:{ok:true}}];"
+      }
+    },
+    {
+      "id": "9650842a-56b2-4242-b939-9044afeeeb38",
+      "name": "Verificar código",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        440
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "hector-indicaciones-verificar",
+        "responseMode": "lastNode",
+        "responseData": "firstEntryJson",
+        "options": {
+          "allowedOrigins": "https://solucionesmedicasintegral-rgb.github.io"
+        }
+      },
+      "webhookId": "dfeaa898-1492-40f2-80d3-4ad670640e6f"
+    },
+    {
+      "id": "29bf878e-91b3-4233-b9a4-7c724b10dc18",
+      "name": "Validar petición OTP",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        440
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const b=$('Verificar código').first().json.body||{};\nconst paciente_id=String(b.paciente_id||'').trim(),codigo=String(b.codigo||'').trim();\nif(!/^\\d{1,15}$/.test(paciente_id)||!/^\\d{6}$/.test(codigo)) throw new Error('Código inválido');\nreturn [{json:{paciente_id,codigo}}];"
+      }
+    },
+    {
+      "id": "cd8f3dc4-ec4f-45bd-a30d-bb79c3b69ead",
+      "name": "Leer OTP",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        440,
+        440
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "QKdTzTdm0u25iLaW",
+          "mode": "list",
+          "cachedResultName": "accesos_indicaciones_hector",
+          "cachedResultUrl": "/projects/YFzT1sCVRuwyWi9e/datatables/QKdTzTdm0u25iLaW"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "paciente_id",
+              "keyValue": "={{ $('Validar petición OTP').first().json.paciente_id }}"
+            }
+          ]
+        },
+        "returnAll": false,
+        "limit": 1
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "02cbb47e-1cd1-4cea-8397-18025d4fe78e",
+      "name": "Limitar intentos OTP",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        440
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const row=$input.first()?.json||{};\nif(!row.otp_hash||Date.now()>Date.parse(row.otp_expires)||Number(row.attempts)>=5)\n  throw new Error('Código incorrecto o vencido');\nreturn [{json:{...row,attempts:Number(row.attempts||0)+1}}];"
+      }
+    },
+    {
+      "id": "3d989184-b472-43fb-872c-737508c1d6ec",
+      "name": "Contar intento",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        880,
+        440
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "value": "QKdTzTdm0u25iLaW",
+          "mode": "list",
+          "cachedResultName": "accesos_indicaciones_hector",
+          "cachedResultUrl": "/projects/YFzT1sCVRuwyWi9e/datatables/QKdTzTdm0u25iLaW"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "paciente_id",
+              "keyValue": "={{ $('Validar petición OTP').first().json.paciente_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "attempts": "={{ $('Limitar intentos OTP').first().json.attempts }}"
+          }
+        }
+      }
+    },
+    {
+      "id": "321cd9e2-d92b-462d-a641-82eb61df6a85",
+      "name": "Hash código recibido",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        440
+      ],
+      "parameters": {
+        "action": "hash",
+        "dataPropertyName": "candidate_hash",
+        "type": "SHA256",
+        "value": "={{ $('Limitar intentos OTP').first().json.otp_salt + $('Validar petición OTP').first().json.codigo }}"
+      }
+    },
+    {
+      "id": "096116bb-77b1-4bfc-a14f-4ffe593d426b",
+      "name": "Comparar OTP",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        440
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const actual=String($input.first().json.candidate_hash||'');\nconst expected=String($('Limitar intentos OTP').first().json.otp_hash||'');\nif(!actual||actual!==expected) throw new Error('Código incorrecto o vencido');\nreturn [{json:{paciente_id:$('Validar petición OTP').first().json.paciente_id}}];"
+      }
+    },
+    {
+      "id": "0056f192-1929-4e29-8486-a1fe3169830f",
+      "name": "Crear sesión",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 1,
+      "position": [
+        1540,
+        440
+      ],
+      "parameters": {
+        "action": "generate",
+        "dataPropertyName": "session_token",
+        "encodingType": "hex",
+        "stringLength": 64
+      }
+    },
+    {
+      "id": "92a817d5-e28f-4edf-aa48-beed270d1160",
+      "name": "Hash sesión",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 1,
+      "position": [
+        1760,
+        440
+      ],
+      "parameters": {
+        "action": "hash",
+        "dataPropertyName": "session_hash",
+        "type": "SHA256",
+        "value": "={{ $json.session_token }}"
+      }
+    },
+    {
+      "id": "7ef9827a-384a-4fd6-90d3-7219fcebfd3d",
+      "name": "Activar sesión",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        1980,
+        440
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "value": "QKdTzTdm0u25iLaW",
+          "mode": "list",
+          "cachedResultName": "accesos_indicaciones_hector",
+          "cachedResultUrl": "/projects/YFzT1sCVRuwyWi9e/datatables/QKdTzTdm0u25iLaW"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "paciente_id",
+              "keyValue": "={{ $('Validar petición OTP').first().json.paciente_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "otp_hash": "",
+            "otp_salt": "",
+            "session_hash": "={{ $('Hash sesión').first().json.session_hash }}",
+            "session_expires": "={{ new Date(Date.now()+15*60*1000).toISOString() }}"
+          }
+        }
+      }
+    },
+    {
+      "id": "ea3b7969-5378-4a4b-a207-a4d6aafb475b",
+      "name": "Respuesta verificación",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2200,
+        440
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const token=String($('Crear sesión').first().json.session_token||'');\nif(!/^[a-f0-9]{64}$/i.test(token))throw new Error('Sesión inválida');\nreturn [{json:{ok:true,token,expires_in:900}}];"
+      }
+    },
+    {
+      "id": "a2d4d624-09e2-462b-91b9-a93554f14d04",
+      "name": "Mis indicaciones",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        880
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "hector-indicaciones-listar",
+        "responseMode": "lastNode",
+        "responseData": "firstEntryJson",
+        "options": {
+          "allowedOrigins": "https://solucionesmedicasintegral-rgb.github.io"
+        }
+      },
+      "webhookId": "4ec36e47-faf8-4de2-8657-b14069db64d8"
+    },
+    {
+      "id": "48655f54-97f7-4efb-a937-b45fbec13558",
+      "name": "Validar token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        880
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const token=String($('Mis indicaciones').first().json.body?.token||'');\nif(!/^[a-f0-9]{64}$/i.test(token)) throw new Error('Acceso vencido');\nreturn [{json:{token}}];"
+      }
+    },
+    {
+      "id": "14e1af8d-5933-4f6f-bd4b-12fd4640286d",
+      "name": "Hash token recibido",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 1,
+      "position": [
+        440,
+        880
+      ],
+      "parameters": {
+        "action": "hash",
+        "dataPropertyName": "session_hash",
+        "type": "SHA256",
+        "value": "={{ $json.token }}"
+      }
+    },
+    {
+      "id": "41f05b24-9fcc-41d4-9cda-ec8d96abacd6",
+      "name": "Buscar sesión",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        660,
+        880
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "QKdTzTdm0u25iLaW",
+          "mode": "list",
+          "cachedResultName": "accesos_indicaciones_hector",
+          "cachedResultUrl": "/projects/YFzT1sCVRuwyWi9e/datatables/QKdTzTdm0u25iLaW"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "session_hash",
+              "keyValue": "={{ $json.session_hash }}"
+            }
+          ]
+        },
+        "returnAll": false,
+        "limit": 1
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "3babf092-5c59-4e1b-8ea5-060f53553818",
+      "name": "Validar sesión",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        880
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const row=$input.first()?.json||{};\nif(!row.paciente_id||!row.session_expires||Date.now()>Date.parse(row.session_expires))\n  throw new Error('Acceso vencido');\nreturn [{json:{paciente_id:String(row.paciente_id)}}];"
+      }
+    },
+    {
+      "id": "50500199-8d0c-4e41-98de-07ababcde69e",
+      "name": "Leer publicaciones",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        880
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "L3G23hkQ9xuRvPG8",
+          "mode": "list",
+          "cachedResultName": "indicaciones_publicadas_hector",
+          "cachedResultUrl": "/projects/YFzT1sCVRuwyWi9e/datatables/L3G23hkQ9xuRvPG8"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "paciente_id",
+              "keyValue": "={{ $json.paciente_id }}"
+            }
+          ]
+        },
+        "returnAll": true,
+        "limit": 1
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "1179665b-d7ba-4758-9152-73b8c848c98e",
+      "name": "Preparar documentos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        880
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const id=$('Validar sesión').first().json.paciente_id;\nconst parse=(s)=>{try{const x=JSON.parse(String(s||'[]'));return Array.isArray(x)?x:[]}catch{return []}};\nconst consultas=$input.all().map(x=>x.json).filter(r=>String(r.paciente_id)===id)\n  .map(r=>({id:String(r.consulta_id||''),fecha:String(r.fecha||''),\n    estudios:parse(r.estudios),procedimientos:parse(r.procedimientos),medicamentos:parse(r.medicamentos)}))\n  .filter(r=>r.id&&(r.estudios.length||r.procedimientos.length||r.medicamentos.length));\nreturn [{json:{ok:true,consultas}}];"
+      }
+    }
+  ],
+  "connections": {
+    "Pedir código": {
+      "main": [
+        [
+          {
+            "node": "Validar petición",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar petición": {
+      "main": [
+        [
+          {
+            "node": "Consultar frecuencia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consultar frecuencia": {
+      "main": [
+        [
+          {
+            "node": "Limitar solicitud",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limitar solicitud": {
+      "main": [
+        [
+          {
+            "node": "Buscar en Core",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar en Core": {
+      "main": [
+        [
+          {
+            "node": "Verificar expediente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verificar expediente": {
+      "main": [
+        [
+          {
+            "node": "Aleatorio OTP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aleatorio OTP": {
+      "main": [
+        [
+          {
+            "node": "Crear código",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Crear código": {
+      "main": [
+        [
+          {
+            "node": "Aleatorio salt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aleatorio salt": {
+      "main": [
+        [
+          {
+            "node": "Hash OTP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hash OTP": {
+      "main": [
+        [
+          {
+            "node": "Guardar OTP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar OTP": {
+      "main": [
+        [
+          {
+            "node": "Enviar OTP Gmail - Dr Héctor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar OTP Gmail": {
+      "main": [
+        [
+          {
+            "node": "Respuesta solicitud",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verificar código": {
+      "main": [
+        [
+          {
+            "node": "Validar petición OTP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar petición OTP": {
+      "main": [
+        [
+          {
+            "node": "Leer OTP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer OTP": {
+      "main": [
+        [
+          {
+            "node": "Limitar intentos OTP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limitar intentos OTP": {
+      "main": [
+        [
+          {
+            "node": "Contar intento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Contar intento": {
+      "main": [
+        [
+          {
+            "node": "Hash código recibido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hash código recibido": {
+      "main": [
+        [
+          {
+            "node": "Comparar OTP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Comparar OTP": {
+      "main": [
+        [
+          {
+            "node": "Crear sesión",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Crear sesión": {
+      "main": [
+        [
+          {
+            "node": "Hash sesión",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hash sesión": {
+      "main": [
+        [
+          {
+            "node": "Activar sesión",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Activar sesión": {
+      "main": [
+        [
+          {
+            "node": "Respuesta verificación",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mis indicaciones": {
+      "main": [
+        [
+          {
+            "node": "Validar token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar token": {
+      "main": [
+        [
+          {
+            "node": "Hash token recibido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hash token recibido": {
+      "main": [
+        [
+          {
+            "node": "Buscar sesión",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar sesión": {
+      "main": [
+        [
+          {
+            "node": "Validar sesión",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar sesión": {
+      "main": [
+        [
+          {
+            "node": "Leer publicaciones",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer publicaciones": {
+      "main": [
+        [
+          {
+            "node": "Preparar documentos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "none",
+    "saveManualExecutions": false
+  },
+  "active": false
+}
