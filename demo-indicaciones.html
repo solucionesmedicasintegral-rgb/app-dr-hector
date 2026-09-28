@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Demostración · Mis indicaciones médicas</title>
+<style>
+:root{font-family:Inter,system-ui,sans-serif;color:#263514;background:#f7f4ec}
+*{box-sizing:border-box}body{margin:0}button,input{font:inherit}
+.notice{position:sticky;top:0;z-index:2;background:#fff1bc;padding:12px;text-align:center;font-size:13px;font-weight:700;color:#4b380b}
+header{background:#263514;color:white;border-radius:0 0 30px 30px;padding:27px 20px 34px}
+header .wrap{max-width:560px;margin:auto;display:flex;align-items:center;gap:14px}
+.logo{width:48px;height:48px;flex:none;border:1px solid #ffffff44;border-radius:15px;display:grid;place-items:center;color:#f2ca68;font-size:30px}
+header small{color:#c8d2bf}h1{font-size:21px;margin:2px 0}main{max-width:560px;margin:-12px auto 60px;padding:0 16px}
+.card{background:white;border:1px solid #e9e4da;border-radius:24px;padding:22px;margin-bottom:16px;box-shadow:0 8px 24px #2635140c}
+h2{font-size:23px;margin:0 0 8px}h3{font-size:17px;margin:0 0 6px}h4{font-size:15px;margin:18px 0 9px}
+p{line-height:1.5;margin:5px 0;color:#5c6258}.muted{font-size:14px;color:#667064}.tiny{font-size:12px;color:#697267}
+button{cursor:pointer;border:1px solid #dedfd7;border-radius:14px;background:white;padding:12px 16px;color:#263514}
+button.primary{background:#263514;color:white;border-color:#263514;font-weight:700}
+button.full{width:100%;margin-top:14px}button:focus-visible,input:focus-visible{outline:3px solid #d7a72c}
+input{display:block;border:1px solid #cbd0c6;border-radius:14px;padding:13px;width:100%;margin-top:8px;font-size:19px;letter-spacing:5px}
+label{display:block;margin-top:18px;font-size:14px;font-weight:600}
+.item{padding:13px;border-radius:13px;background:#f7f7f3;margin:8px 0}.item strong{display:block;margin-bottom:4px}
+.item span{display:block;font-size:13px;color:#5f675a;line-height:1.5}.tag{display:inline-block;border-radius:30px;background:#edf2e5;padding:5px 11px;font-size:12px;color:#39521e}
+.error{color:#9a2424;font-size:14px;margin-top:12px}.success{color:#3a5c25;font-size:14px;margin-top:12px}
+.inline{border:0;background:none;padding:5px 0;color:#52642d;text-decoration:underline}
+</style>
+</head>
+<body>
+<div class="notice">DEMOSTRACIÓN · Datos inventados · Sin conexión a Nimbo ni envío de correos</div>
+<header><div class="wrap"><span class="logo" aria-hidden="true">✚</span><div><small>Tu espacio de salud</small><h1>Dr. Héctor Carrillo</h1></div></div></header>
+<main id="app" aria-live="polite"></main>
+<script>
+const app=document.getElementById('app');
+let stage='home',error='',codeSent=false;
+function render(){
+  if(stage==='home')app.innerHTML=`
+    <section class="card"><span class="tag">Paciente de demostración</span><h2 style="margin-top:12px">Hola, paciente</h2><p>Así se vería el acceso a tus indicaciones en Mi Salud.</p></section>
+    <section class="card"><h3>Mis indicaciones médicas</h3><p class="muted">Órdenes de laboratorio, procedimientos y recetas compartidas por el consultorio.</p><button class="primary full" onclick="openAccess()">Abrir mis indicaciones</button></section>
+    <p class="tiny">En la app real también aparecen citas, pedidos y servicios.</p>`;
+  if(stage==='access')app.innerHTML=`
+    <section class="card"><button class="inline" onclick="goHome()">← Inicio</button><h2>Mis indicaciones médicas</h2><p class="muted">Confirma tu identidad para consultar los documentos que autorice el consultorio.</p></section>
+    <section class="card"><h3>Código de acceso</h3><p class="muted">En la versión real, el código llegaría al correo del expediente. En esta demostración no se envía ningún correo.</p>
+      <button class="primary full" onclick="sendDemoCode()">${codeSent?'Solicitar otro código de prueba':'Simular envío del código'}</button>
+      ${codeSent?'<p class="success">Código de prueba: <strong>123456</strong></p><label for="otp">Código de 6 dígitos</label><input id="otp" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="000000"><button class="primary full" onclick="verifyDemoCode()">Ver mis indicaciones</button>':''}
+      ${error?'<p class="error" role="alert">'+error+'</p>':''}
+    </section>`;
+  if(stage==='documents')app.innerHTML=`
+    <section class="card"><button class="inline" onclick="goHome()">← Inicio</button><h2>Mis indicaciones médicas</h2><p class="muted">Solo las indicaciones finalizadas y compartidas por el consultorio.</p></section>
+    <section class="card"><span class="tag">Consulta de ejemplo · 25 de septiembre de 2026</span>
+      <h4>Estudios de laboratorio e imágenes</h4><div class="item"><strong>Estudio de muestra</strong><span>Aquí se mostraría el nombre y la indicación autorizada por el médico.</span></div>
+      <h4>Procedimientos</h4><div class="item"><strong>Procedimiento de muestra</strong><span>El procedimiento aparecería dentro de la consulta correspondiente.</span></div>
+      <h4>Receta de medicamentos</h4><div class="item"><strong>Medicamento de muestra</strong><span>La receta final autorizada mostraría las instrucciones exactas del médico.</span></div>
+    </section><p class="tiny">Los textos de esta pantalla son ejemplos y no constituyen indicaciones médicas.</p>`;
+}
+function goHome(){stage='home';error='';codeSent=false;render()}
+function openAccess(){stage='access';render()}
+function sendDemoCode(){codeSent=true;error='';render()}
+function verifyDemoCode(){
+  if(document.getElementById('otp').value.trim()==='123456'){stage='documents';error=''}
+  else error='Código de demostración incorrecto';
+  render();
+}
+render();
+</script>
+</body>
+</html>
