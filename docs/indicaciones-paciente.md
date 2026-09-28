@@ -1,6 +1,6 @@
 # Mis indicaciones médicas: contrato para Core
 
-Estado: interfaz preparada en `feat/documentos-paciente`. **No publicar ni fusionar** antes de que Core implemente las acciones siguientes y se pruebe la autorización.
+Estado: interfaz preparada y flujo aislado de 31 nodos generado en `n8n/indicaciones-paciente-draft.json`. El flujo importado en n8n sigue como borrador sin credencial Gmail asignada ni prueba integral. **No publicar ni fusionar** hasta completar la verificación de identidad y aislamiento con datos ficticios, configurar la credencial Gmail y confirmar la autorización clínica.
 
 ## Datos que puede mostrar la app
 
@@ -18,7 +18,7 @@ El token no se guarda en `localStorage` ni en la URL; se pierde al cerrar o reca
 
 | Acción | Solicitud | Respuesta mínima |
 | --- | --- | --- |
-| `solicitar_acceso_indicaciones` | `{paciente_id}` | `{ok:true}` tras enviar un código de 6 dígitos al correo del expediente |
+| `solicitar_acceso_indicaciones` | `{paciente_id,telefono}` | `{ok:true}` tras cotejar el expediente y enviar un código de 6 dígitos al correo registrado |
 | `verificar_acceso_indicaciones` | `{paciente_id,codigo}` | `{ok:true,token:"...",expires_in:900}` (segundos) |
 | `mis_indicaciones` | `{token}` | `{ok:true,consultas:[...]}`; el servidor deduce el paciente del token |
 
@@ -35,6 +35,8 @@ Forma normalizada de cada consulta:
 ```
 
 El backend debe comprobar que cada consulta pertenece al paciente autenticado. Las tres listas pueden estar vacías. No incluir datos de otros pacientes, datos administrativos o URLs de documentos sin autorización. Si en Nimbo no existe una señal confiable de que una indicación está finalizada y compartida, almacenar en Core una autorización explícita del consultorio por consulta/elemento antes de devolverla.
+
+La tabla `indicaciones_publicadas_hector` está vacía. Cada fila debe ser publicada de forma expresa por el consultorio tras revisar el contenido, con `paciente_id`, `consulta_id`, `fecha` y los arreglos JSON de `estudios`, `procedimientos`, `medicamentos`. El flujo de lectura no consulta automáticamente órdenes clínicas de Nimbo. Esta captura manual es una fase de control, no una sincronización automática.
 
 ## Verificación antes de publicar
 

@@ -107,6 +107,25 @@ async function api(body){
   return r.json();
 }
 
+// Clinical endpoints live in an isolated workflow; the regular scheduling
+// webhook never receives the one-time code or the document session token.
+async function medicalApi(action, body){
+  const path={
+    solicitar_acceso_indicaciones:'hector-indicaciones-solicitar',
+    verificar_acceso_indicaciones:'hector-indicaciones-verificar',
+    mis_indicaciones:'hector-indicaciones-listar'
+  }[action];
+  if(!path)throw new Error('Acción clínica inválida');
+  const url=new URL(C.webhook);
+  url.pathname=url.pathname.replace(/\/[^/]+$/, '/'+path);
+  const response=await fetch(url.toString(),{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    cache:'no-store',body:JSON.stringify(body)
+  });
+  if(!response.ok)throw new Error('Error '+response.status);
+  return response.json();
+}
+
 function toast(t){
   const e=document.createElement('div');
   e.className='fixed top-4 left-1/2 -translate-x-1/2 z-[120] bg-black text-white px-4 py-3 rounded-xl text-sm shadow-xl';
@@ -324,7 +343,9 @@ async function requestMedicalAccess(){
   if(!patientId())return toast('No pude identificar tu expediente');
   setLoading(true,'Solicitando código de acceso…');
   try{
-    const r=await api({action:'solicitar_acceso_indicaciones',paciente_id:patientId()});
+    const r=await medicalApi('solicitar_acceso_indicaciones',{
+      paciente_id:patientId(),telefono:state.patient?.telefono||state.patient?.telephone2||state.phone
+    });
     state.loading=false;
     if(r?.ok!==true)throw new Error('No se pudo enviar el código');
     state.medicalAccessRequested=true;
@@ -342,7 +363,7 @@ async function verifyMedicalAccess(){
   if(!/^\d{6}$/.test(code))return toast('Ingresa el código de 6 dígitos');
   setLoading(true,'Verificando tu identidad…');
   try{
-    const r=await api({action:'verificar_acceso_indicaciones',paciente_id:patientId(),codigo:code});
+    const r=await medicalApi('verificar_acceso_indicaciones',{paciente_id:patientId(),codigo:code});
     state.loading=false;
     if(r?.ok!==true||typeof r.token!=='string'||r.token.length<24||
        !Number.isFinite(Number(r.expires_in))||Number(r.expires_in)<=0)
@@ -371,7 +392,7 @@ async function loadMedicalDocuments(){
   try{
     // The server derives the patient from the short-lived token, verifies
     // ownership of each consultation, and returns only released documents.
-    const r=await api({action:'mis_indicaciones',token:state.medicalAccess});
+    const r=await medicalApi('mis_indicaciones',{token:state.medicalAccess});
     if(r?.ok!==true||!Array.isArray(r.consultas))throw new Error('Respuesta inválida');
     state.loading=false;
     state.medicalDocuments=r.consultas;
