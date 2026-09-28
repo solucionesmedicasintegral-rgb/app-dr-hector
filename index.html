@@ -42,15 +42,18 @@ body{background:var(--cream);font-family:Inter,system-ui,sans-serif;color:#24242
 .home-primary .home-action-icon{background:#ffffff1a;color:#f6d777;border:1px solid #ffffff2e}
 .home-primary-layout{display:grid;grid-template-columns:1fr;min-height:190px}
 .home-primary-copy{position:relative;z-index:2;padding:22px;display:flex;flex-direction:column;justify-content:center}
-.home-primary-media{position:relative;min-height:145px;background:
+.home-primary-media{position:relative;min-height:170px;background:
   linear-gradient(90deg,rgba(38,53,20,.82) 0%,rgba(38,53,20,.35) 35%,rgba(38,53,20,.06) 100%),
-  url('assets/hero-consultorio-v2.svg') center/cover no-repeat}
+  url('hero-consultorio-logo-hector.png.png') 43% center/cover no-repeat}
 .home-primary-cta{display:inline-flex;align-items:center;gap:9px;background:var(--gold2);color:var(--olive);
   padding:11px 16px;border-radius:14px;font-weight:700;width:max-content;margin-top:16px}
 .medical-icon{background:#fff0f0;color:#a43b4d}
+@media (max-width:699px){
+  .home-primary-media{background-position:42% 58%;min-height:185px}
+}
 @media (min-width:700px){
-  .home-primary-layout{grid-template-columns:58% 42%;min-height:220px}
-  .home-primary-media{min-height:220px}
+  .home-primary-layout{grid-template-columns:54% 46%;min-height:230px}
+  .home-primary-media{min-height:230px;background-position:42% center}
   .home-primary-copy{padding:28px 30px}
 }
 .home-section-title{font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#8a8375;padding:0 2px}
@@ -1615,7 +1618,7 @@ window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;installBa
 setTimeout(renderInstallBanner,900);
 
 render();
-if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js?v=49');
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js?v=50');
 </script>
 </body>
 </html>
