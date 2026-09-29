@@ -86,7 +86,7 @@ node("Buscar en Core", "httpRequest", {
 }, 880, 0, 4.2)
 code("Verificar expediente", """
 const result=$input.first()?.json||{};
-const p=result.ok===true&&result.encontrado===true?result.paciente:null;
+const p=result.encontrado===true?result.paciente:null;
 const requested=$('Validar petición').first().json;
 const id=String(p?.id||p?.person_id||p?.patient_id||'');
 const email=String(p?.email||'').trim().toLowerCase();

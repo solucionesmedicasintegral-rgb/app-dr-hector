@@ -113,7 +113,7 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const result=$input.first()?.json||{};\nconst p=result.ok===true&&result.encontrado===true?result.paciente:null;\nconst requested=$('Validar petición').first().json;\nconst id=String(p?.id||p?.person_id||p?.patient_id||'');\nconst email=String(p?.email||'').trim().toLowerCase();\nif(id!==requested.paciente_id||!/^\\S+@\\S+\\.\\S+$/.test(email))\n  throw new Error('Expediente sin correo verificable');\nreturn [{json:{paciente_id:id,email}}];"
+        "jsCode": "const result=$input.first()?.json||{};\nconst p=result.encontrado===true?result.paciente:null;\nconst requested=$('Validar petición').first().json;\nconst id=String(p?.id||p?.person_id||p?.patient_id||'');\nconst email=String(p?.email||'').trim().toLowerCase();\nif(id!==requested.paciente_id||!/^\\S+@\\S+\\.\\S+$/.test(email))\n  throw new Error('Expediente sin correo verificable');\nreturn [{json:{paciente_id:id,email}}];"
       }
     },
     {
