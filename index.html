@@ -530,8 +530,9 @@ function medicalDocumentsView(){
     const labs=medicalList('Estudios de laboratorio e imágenes',x.estudios);
     const procedures=medicalList('Procedimientos',x.procedimientos);
     const prescription=medicalList('Receta de medicamentos',x.medicamentos);
-    if(!labs&&!procedures&&!prescription)return '';
-    return '<section class="card rounded-3xl p-5"><span class="home-kicker"><span class="home-dot"></span> Consulta '+fecha+'</span>'+labs+procedures+prescription+'</section>';
+    const recipes=medicalList('Recetas médicas',x.recetas);
+    if(!labs&&!procedures&&!prescription&&!recipes)return '';
+    return '<section class="card rounded-3xl p-5"><span class="home-kicker"><span class="home-dot"></span> Consulta '+fecha+'</span>'+labs+procedures+prescription+recipes+'</section>';
   }).filter(Boolean).join('');
   const empty=state.medicalDocumentsLoaded?'<section class="card rounded-3xl p-5 text-stone-600">Todavía no hay indicaciones compartidas contigo.</section>':'';
   return '<div class="space-y-4">'+header+(cards||empty)+'<button onclick="loadMedicalDocuments()" class="w-full border rounded-2xl py-3">Actualizar indicaciones</button><p class="text-xs text-stone-500 px-2">Si alguna indicación no coincide con lo explicado por el médico, contacta al consultorio.</p></div>';
