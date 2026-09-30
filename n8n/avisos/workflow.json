@@ -1,0 +1,343 @@
+{
+  "name": "HECTOR - Avisos correo de citas y pagos - BORRADOR",
+  "nodes": [
+    {
+      "id": "f804c23f-cf52-427e-8e39-2d210c7b681d",
+      "name": "Recibir aviso interno",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "a14251e7-a76e-4dbe-9b1d-c320ff8b11a8",
+      "name": "Validar aviso",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ],
+      "parameters": {
+        "jsCode": "function validarAviso(raw) {\n  if (!['cita_agendada','pago_confirmado'].includes(raw.tipo)) throw new Error('Tipo de aviso no permitido');\n  const paciente_id = String(raw.paciente_id || '');\n  const cita_id = String(raw.cita_id || '');\n  const telefono = String(raw.telefono || '').replace(/\\D/g,'').slice(-10);\n  if (!/^\\d{1,15}$/.test(paciente_id) || !/^\\d{1,15}$/.test(cita_id) || !/^\\d{10}$/.test(telefono)) throw new Error('Datos de expediente o cita incompletos');\n  if (typeof raw.starts_at !== 'string' || !/^\\d{4}-\\d{2}-\\d{2}T.*(?:Z|[+-]\\d{2}:?\\d{2})$/.test(raw.starts_at) || !Number.isFinite(Date.parse(raw.starts_at))) throw new Error('Fecha de cita inválida');\n  const monto = Number(raw.monto || 0);\n  if (raw.tipo === 'pago_confirmado' && (!Number.isFinite(monto) || monto <= 0)) throw new Error('Pago confirmado sin monto válido');\n  return {tipo:raw.tipo,evento_id:`${raw.tipo}:${cita_id}`,paciente_id,cita_id,telefono,starts_at:raw.starts_at,modalidad:raw.modalidad === 'virtual' ? 'virtual' : 'presencial',monto};\n}\n\nreturn [{json:validarAviso($input.first().json)}];"
+      }
+    },
+    {
+      "id": "94c84de8-b2ad-4311-b050-48f9a669a3c4",
+      "name": "Consultar registro",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "uDJQotRBLCPJVZnB",
+          "mode": "list",
+          "cachedResultName": "avisos_correo_hector",
+          "cachedResultUrl": "/projects/YFzT1sCVRuwyWi9e/datatables/uDJQotRBLCPJVZnB"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "evento_id",
+              "keyValue": "={{ $('Validar aviso').first().json.evento_id }}"
+            }
+          ]
+        },
+        "returnAll": false,
+        "limit": 1
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "73378337-26ec-47c0-8fbf-36011502e2d2",
+      "name": "Evitar duplicado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        300
+      ],
+      "parameters": {
+        "jsCode": "if ($input.all().some(i => i.json.evento_id)) return [];\nreturn [{json:$('Validar aviso').first().json}];"
+      }
+    },
+    {
+      "id": "1dd2927d-6a47-4e53-831f-e86947a49f9e",
+      "name": "Buscar expediente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://solucionesmedicasintegral.app.n8n.cloud/webhook/hector-app-core",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {action:'buscar_paciente',telefono:$json.telefono} }}",
+        "options": {
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "f4d5c7f1-2489-4e42-be3c-fecb1d5fdc23",
+      "name": "Preparar correo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Called only from the internal workflow after a fresh patient lookup.\nfunction prepararCorreo(evento, result) {\n  const p = result.encontrado === true ? result.paciente : null;\n  const id = String(p?.id || p?.person_id || p?.patient_id || '');\n  const email = String(p?.email || '').trim().toLowerCase();\n  if (id !== evento.paciente_id || !/^\\S+@\\S+\\.\\S+$/.test(email)) {\n    throw new Error('El expediente no tiene un correo verificable para este aviso');\n  }\n  const esc = v => String(v ?? '').replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c]));\n  const date = new Date(evento.starts_at);\n  if (!Number.isFinite(date.getTime())) throw new Error('Fecha de cita inválida');\n  const fecha = new Intl.DateTimeFormat('es-MX', {dateStyle:'full', timeZone:'America/Mexico_City'}).format(date);\n  const hora = new Intl.DateTimeFormat('es-MX', {hour:'numeric',minute:'2-digit',timeZone:'America/Mexico_City'}).format(date);\n  const pagado = evento.tipo === 'pago_confirmado';\n  const asunto = pagado ? 'Pago confirmado · Dr. Héctor Carrillo' : 'Cita agendada · Dr. Héctor Carrillo';\n  const titulo = pagado ? 'Recibimos tu pago' : 'Tu cita quedó agendada';\n  const monto = pagado ? new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN'}).format(evento.monto) : '';\n  const texto = pagado ? `El consultorio confirmó tu pago por ${monto}.` : 'Registramos tu cita con el Dr. Héctor Carrillo. Puedes consultar el estado de tu pago en la app.';\n  const html = `<div style=\"background:#f7f4ec;padding:24px;font-family:Arial,sans-serif;color:#272727\"><div style=\"max-width:560px;margin:auto;background:white;border-radius:20px;overflow:hidden\"><div style=\"background:#2d371d;color:white;padding:24px;font-size:21px;font-weight:bold\">Dr. Héctor Carrillo</div><div style=\"padding:24px\"><h1 style=\"font-size:24px\">${titulo}</h1><p>${esc(texto)}</p><p><b>Fecha:</b> ${esc(fecha)}<br><b>Hora:</b> ${esc(hora)}<br><b>Modalidad:</b> ${evento.modalidad === 'virtual' ? 'Virtual' : 'Presencial'}</p><a href=\"https://solucionesmedicasintegral-rgb.github.io/app-dr-hector/\" style=\"display:inline-block;background:#2d371d;color:white;text-decoration:none;border-radius:12px;padding:14px 20px\">Ver mi cita</a><p style=\"font-size:12px;color:#777;margin-top:24px\">Si necesitas ayuda o algún dato no coincide, contacta al consultorio. Este correo no incluye tu receta ni información clínica.</p></div></div></div>`;\n  return {...evento,email,asunto,html};\n}\n\nreturn [{json:prepararCorreo($('Validar aviso').first().json,$input.first().json)}];"
+      }
+    },
+    {
+      "id": "fd0fcc14-d659-422b-aa15-61681d9bb51e",
+      "name": "Reservar aviso",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        1320,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "uDJQotRBLCPJVZnB",
+          "mode": "list",
+          "cachedResultName": "avisos_correo_hector",
+          "cachedResultUrl": "/projects/YFzT1sCVRuwyWi9e/datatables/uDJQotRBLCPJVZnB"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "evento_id",
+              "keyValue": "={{ $('Validar aviso').first().json.evento_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "evento_id": "={{ $('Preparar correo').first().json.evento_id }}",
+            "paciente_id": "={{ $('Preparar correo').first().json.paciente_id }}",
+            "cita_id": "={{ $('Preparar correo').first().json.cita_id }}",
+            "email": "={{ $('Preparar correo').first().json.email }}",
+            "estado": "preparando",
+            "enviado_at": ""
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      }
+    },
+    {
+      "id": "0bf7ce73-f5ea-49bd-b7b9-15be013b0013",
+      "name": "Enviar correo Hector",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1540,
+        300
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ $('Preparar correo').first().json.email }}",
+        "subject": "={{ $('Preparar correo').first().json.asunto }}",
+        "emailType": "html",
+        "message": "={{ $('Preparar correo').first().json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      }
+    },
+    {
+      "id": "ed2683b6-f5d5-4d25-b5c5-e07a79caa009",
+      "name": "Marcar enviado",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        1760,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "uDJQotRBLCPJVZnB",
+          "mode": "list",
+          "cachedResultName": "avisos_correo_hector",
+          "cachedResultUrl": "/projects/YFzT1sCVRuwyWi9e/datatables/uDJQotRBLCPJVZnB"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "evento_id",
+              "keyValue": "={{ $('Validar aviso').first().json.evento_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "evento_id": "={{ $('Preparar correo').first().json.evento_id }}",
+            "paciente_id": "={{ $('Preparar correo').first().json.paciente_id }}",
+            "cita_id": "={{ $('Preparar correo').first().json.cita_id }}",
+            "email": "={{ $('Preparar correo').first().json.email }}",
+            "estado": "enviado",
+            "enviado_at": "={{ $now.toISO() }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      }
+    },
+    {
+      "id": "60959c95-5438-4545-8ddc-8f3dae769f48",
+      "name": "Resultado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        300
+      ],
+      "parameters": {
+        "jsCode": "return [{json:{ok:true,evento_id:$('Validar aviso').first().json.evento_id}}];"
+      }
+    }
+  ],
+  "connections": {
+    "Recibir aviso interno": {
+      "main": [
+        [
+          {
+            "node": "Validar aviso",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar aviso": {
+      "main": [
+        [
+          {
+            "node": "Consultar registro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consultar registro": {
+      "main": [
+        [
+          {
+            "node": "Evitar duplicado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evitar duplicado": {
+      "main": [
+        [
+          {
+            "node": "Buscar expediente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar expediente": {
+      "main": [
+        [
+          {
+            "node": "Preparar correo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar correo": {
+      "main": [
+        [
+          {
+            "node": "Reservar aviso",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reservar aviso": {
+      "main": [
+        [
+          {
+            "node": "Enviar correo Hector",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar correo Hector": {
+      "main": [
+        [
+          {
+            "node": "Marcar enviado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Marcar enviado": {
+      "main": [
+        [
+          {
+            "node": "Resultado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "active": false
+}
