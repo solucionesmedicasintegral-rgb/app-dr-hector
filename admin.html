@@ -421,6 +421,7 @@ async function savePaymentState(c,metodo,monto,estadoPago){
   try{
     const r=await core({
       action:'solicitar_pago',
+      modalidad:adminAppointmentMode(c),
       pin:state.pin,
       cita_id:citaId,
       paciente_id:String(c.person_id||c.paciente_id||''),
