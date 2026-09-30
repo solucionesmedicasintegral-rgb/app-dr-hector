@@ -1392,6 +1392,7 @@ async function confirmBooking(){
     const r=await api({
       action:'crear_cita',
       paciente_id:state.patient.id,
+      telefono:String(state.patient?.telefono||state.patient?.telephone2||state.patient?.telephone||state.phone||''),
       fecha:x.fecha,
       hora:x.hora,
       duracion:state.service.duration,
