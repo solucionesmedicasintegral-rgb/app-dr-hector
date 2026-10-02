@@ -1,5 +1,15 @@
 # Avisos por correo del Dr. Héctor
 
+## Cambio preparado el 2 de octubre de 2026: solicitud de liga
+
+El usuario indicó explícitamente `smedicahr@gmail.com` como destino del aviso cuando una paciente solicita la liga. El código incorpora `liga_solicitada`, con destinatario fijo y nombre/teléfono verificados mediante el expediente, ID de cita, fecha/hora e importe solicitado. No incluye información clínica ni acredita un pago. No requiere que la paciente tenga correo para este aviso interno.
+
+**Pendiente de publicar en n8n al recuperar la sesión.** Los avisos de cita y pago publicados el 30 de septiembre continúan siendo la versión activa. Los archivos importables de este directorio ya contienen el cambio preparado; no demuestran que esté activo.
+
+Para activar: actualizar los nodos `Validar aviso` y `Preparar correo` del subflujo existente con el código de `workflow.json`, publicar el subflujo, importar `liga-core-nodos.json` en el Core y conectar `Responder Elección Pago Paciente` a `Preparar aviso liga solicitada`. El adaptador solo continúa cuando la solicitud guardada corresponde a la misma cita y al estado `pendiente_liga`. Publicar el Core y comprobar un único aviso de prueba, sin crear una cita ni un cobro real. El registro usa `liga_solicitada:cita_id` para evitar reintentos secuenciales.
+
+La revisión local comprobó destino fijo, escape HTML, paciente coincidente, continuidad de destinatarios de cita/pago y rechazo de transferencia pendiente, cita diferente y fecha inválida. No se realizaron envíos en esta revisión.
+
 Estado al 30 de septiembre de 2026: flujo **PUBLICADO**, ID `euohdVVLQiwNYJm6`, conectado al Core `sRNzQ0Ic9pxnOWeh` después de `Responder Crear Cita` y `Responder Estado Pago`. El Core también fue publicado. La app incluye teléfono al agendar y el admin incluye modalidad al confirmar el pago.
 
 La prueba manual controlada `K1ftpLBMJCijyODe` ejecutó los dos tipos de aviso con el expediente autorizado del propietario y datos ficticios. Ambos correos fueron marcados `[PRUEBA]`; Gmail aceptó los envíos y la tabla registró ambos como `enviado`. Un segundo intento con las mismas claves terminó sin nuevos envíos. No se creó una cita ni se registró un pago real. Esto comprueba el envío mediante el subflujo; no verifica la llegada a la bandeja del destinatario ni constituye una reserva o transacción completa de prueba desde la app.
