@@ -2,7 +2,7 @@
   "nodes": [
     {
       "id": "859de0e0-14e7-4d2d-bcbf-9c9d27117770",
-      "name": "Preparar aviso liga solicitada",
+      "name": "Preparar aviso elección pago",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
@@ -10,13 +10,13 @@
         3200
       ],
       "parameters": {
-        "jsCode": "const r=$('Preparar Elección Pago Paciente').first().json;\nconst guardado=$input.first().json;\nif(r.estado_pago!=='pendiente_liga'||guardado.estado_pago!=='pendiente_liga'||String(guardado.cita_id)!==String(r.cita_id))return [];\nlet starts_at=String(r.fecha||'');\nif(/^\\d{4}-\\d{2}-\\d{2}$/.test(starts_at)&&/^\\d{2}:\\d{2}$/.test(String(r.hora||'')))starts_at+=`T${r.hora}:00-06:00`;\nif(!/^\\d{4}-\\d{2}-\\d{2}T.*(?:Z|[+-]\\d{2}:?\\d{2})$/.test(starts_at)||!Number.isFinite(Date.parse(starts_at))||!r.telefono||!r.paciente_id)return [];\nreturn [{json:{tipo:'liga_solicitada',paciente_id:String(r.paciente_id),cita_id:String(r.cita_id),telefono:r.telefono,starts_at,monto:Number(r.monto||0)}}];"
+        "jsCode": "const r=$('Preparar Elección Pago Paciente').first().json;\nconst guardado=$input.first().json;\nif(!['pendiente_liga','pendiente_transferencia'].includes(r.estado_pago)||guardado.estado_pago!==r.estado_pago||String(guardado.cita_id)!==String(r.cita_id))return [];\nlet starts_at=String(r.fecha||'');\nif(/^\\d{4}-\\d{2}-\\d{2}$/.test(starts_at)&&/^\\d{2}:\\d{2}$/.test(String(r.hora||'')))starts_at+=`T${r.hora}:00-06:00`;\nif(!/^\\d{4}-\\d{2}-\\d{2}T.*(?:Z|[+-]\\d{2}:?\\d{2})$/.test(starts_at)||!Number.isFinite(Date.parse(starts_at))||!r.telefono||!r.paciente_id)return [];\nreturn [{json:{tipo:r.estado_pago==='pendiente_liga'?'liga_solicitada':'transferencia_elegida',paciente_id:String(r.paciente_id),cita_id:String(r.cita_id),telefono:r.telefono,starts_at,monto:Number(r.monto||0)}}];"
       },
       "onError": "continueRegularOutput"
     },
     {
       "id": "34164ad6-6f96-4019-81b2-a8b20f86cd88",
-      "name": "Avisar liga a SMI",
+      "name": "Avisar elección pago a SMI",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.3,
       "position": [
@@ -37,11 +37,11 @@
     }
   ],
   "connections": {
-    "Preparar aviso liga solicitada": {
+    "Preparar aviso elección pago": {
       "main": [
         [
           {
-            "node": "Avisar liga a SMI",
+            "node": "Avisar elección pago a SMI",
             "type": "main",
             "index": 0
           }
