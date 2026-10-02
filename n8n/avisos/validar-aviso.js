@@ -1,5 +1,5 @@
 function validarAviso(raw){
- if(!['cita_agendada','pago_confirmado','liga_solicitada'].includes(raw.tipo))throw new Error('Tipo no permitido');
+ if(!['cita_agendada','pago_confirmado','liga_solicitada','transferencia_elegida'].includes(raw.tipo))throw new Error('Tipo no permitido');
  const paciente_id=String(raw.paciente_id||'');
  const cita_id=String(raw.cita_id||'');
  const telefono=String(raw.telefono||'').replace(/\D/g,'').slice(-10);
