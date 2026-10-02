@@ -1,14 +1,14 @@
 # Avisos por correo del Dr. Héctor
 
-## Cambio preparado el 2 de octubre de 2026: solicitud de liga
+## Solicitud de liga y elección de transferencia — 2 de octubre de 2026
 
-El usuario indicó explícitamente `smedicahr@gmail.com` como destino del aviso cuando una paciente solicita la liga. El código incorpora `liga_solicitada`, con destinatario fijo y nombre/teléfono verificados mediante el expediente, ID de cita, fecha/hora e importe solicitado. No incluye información clínica ni acredita un pago. No requiere que la paciente tenga correo para este aviso interno.
+Destino autorizado para ambos avisos: `smedicahr@gmail.com`. La solicitud de liga avisa al consultorio para que envíe la liga. La elección de transferencia avisa que la paciente eligió ese método y que el pago sigue pendiente. Ninguno acredita un pago ni incluye datos clínicos.
 
-**Pendiente de publicar en n8n al recuperar la sesión.** Los avisos de cita y pago publicados el 30 de septiembre continúan siendo la versión activa. Los archivos importables de este directorio ya contienen el cambio preparado; no demuestran que esté activo.
+**Estado real:** el subflujo fue publicado con soporte para `liga_solicitada`; todavía falta conectar el disparador en el Core y hacer una prueba de envío. El nuevo soporte para `transferencia_elegida` está preparado en estos archivos y pendiente de publicar. El navegador de trabajo bloqueó el editor por un estado de credenciales que no pudo recuperar; no se ejecutó ningún correo de prueba el 2 de octubre.
 
-Para activar: actualizar los nodos `Validar aviso` y `Preparar correo` del subflujo existente con el código de `workflow.json`, publicar el subflujo, importar `liga-core-nodos.json` en el Core y conectar `Responder Elección Pago Paciente` a `Preparar aviso liga solicitada`. El adaptador solo continúa cuando la solicitud guardada corresponde a la misma cita y al estado `pendiente_liga`. Publicar el Core y comprobar un único aviso de prueba, sin crear una cita ni un cobro real. El registro usa `liga_solicitada:cita_id` para evitar reintentos secuenciales.
+Para activar ambos: actualizar `Validar aviso` y `Preparar correo` del subflujo existente con el código de `workflow.json`, publicar el subflujo, importar los dos nodos de `liga-core-nodos.json` en el Core y conectar `Responder Elección Pago Paciente` a `Preparar aviso elección pago`. Publicar el Core. Los adaptadores requieren que la fila guardada coincida con cita y estado solicitado (`pendiente_liga` o `pendiente_transferencia`); no notifican un pago confirmado. Usan claves separadas `liga_solicitada:cita_id` y `transferencia_elegida:cita_id`. No importar nuevamente los otros cuatro nodos que ya están publicados.
 
-La revisión local comprobó destino fijo, escape HTML, paciente coincidente, continuidad de destinatarios de cita/pago y rechazo de transferencia pendiente, cita diferente y fecha inválida. No se realizaron envíos en esta revisión.
+La revisión local con datos sintéticos comprueba ambos destinatarios fijos, ausencia de correo de paciente, estado pendiente, escape HTML, coincidencia de expediente y conservación de los avisos de cita/pago. La revisión local no demuestra publicación ni entrega de correo.
 
 Estado al 30 de septiembre de 2026: flujo **PUBLICADO**, ID `euohdVVLQiwNYJm6`, conectado al Core `sRNzQ0Ic9pxnOWeh` después de `Responder Crear Cita` y `Responder Estado Pago`. El Core también fue publicado. La app incluye teléfono al agendar y el admin incluye modalidad al confirmar el pago.
 
@@ -24,7 +24,7 @@ La interfaz de n8n confirmó los campos de la reserva y la condición Equals. Se
 
 ## Integración publicada
 
-`integracion-core-nodos.json` contiene los cuatro nodos añadidos al Core. Conectar `Responder Crear Cita` a `Preparar aviso cita` y `Responder Estado Pago` a `Preparar aviso pago`. Los adaptadores usan los resultados confirmados y la petición original. El pago requiere que la fila guardada coincida con cita y estado `pagado`, además de monto positivo y fecha válida. Los avisos se lanzan sin esperar al subflujo y con continuación ante error, después de responder a la app.
+`integracion-core-nodos.json` contiene los cuatro nodos publicados y los dos nuevos nodos pendientes de conectar. Conectar `Responder Crear Cita` a `Preparar aviso cita` y `Responder Estado Pago` a `Preparar aviso pago`. Los adaptadores usan los resultados confirmados y la petición original. El pago requiere que la fila guardada coincida con cita y estado `pagado`, además de monto positivo y fecha válida. Los avisos se lanzan sin esperar al subflujo y con continuación ante error, después de responder a la app.
 
 No reejecutar la creación de cita ni la confirmación de pago para reintentar un correo. Revisar manualmente las reservas que queden en `preparando`. El control de duplicados evita el reintento secuencial comprobado; no es un bloqueo atómico para llamadas simultáneas.
 
