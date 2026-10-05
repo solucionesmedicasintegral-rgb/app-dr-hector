@@ -7,5 +7,6 @@ window.HECTOR_CONFIG={
   nimboSourceSlug:'HCARRILLO',
   timezone:'America/Mexico_City',
   currency:'MXN',
-  version:'1.0.0'
+  bankTransfer:{bank:'Banamex',holder:'Héctor Jesús Carrillo Vidrio',account:'4198129479',clabe:'002441419801294797'},
+  version:'1.1.0'
 };
