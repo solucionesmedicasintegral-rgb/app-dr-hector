@@ -1,10 +1,11 @@
-const C='hector-admin-pwa-v30';
+const C='hector-admin-pwa-v32';
 self.addEventListener('install',e=>{
   self.skipWaiting();
   e.waitUntil(caches.open(C).then(c=>c.addAll([
     './admin.html',
     './config.js',
     './services.js',
+    './admin-operations.js?v=20261005',
     './manifest-admin.json',
     './assets/logo-admin.png',
     './assets/icon-admin-192.png',
