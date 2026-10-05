@@ -1505,21 +1505,21 @@ function paymentSection(){
   if(state.paymentStatus==='pendiente_transferencia'){
     return `<div class="bg-[#faf8f1] rounded-2xl p-4 mt-5 text-left">
       <div class="font-semibold text-lg">Datos para transferencia</div>
-      <div class="text-sm text-stone-500 mt-1">HSBC · Héctor Jesús Carrillo Vidrio</div>
+      <div class="text-sm text-stone-500 mt-1">${C.bankTransfer.bank} · ${C.bankTransfer.holder}</div>
 
       <div class="mt-4">
         <div class="text-xs text-stone-500">No. de cuenta</div>
         <div class="flex items-center justify-between gap-3 mt-1">
-          <div class="font-semibold tracking-wide">6453507182</div>
-          <button onclick="copyPaymentValue('6453507182','Cuenta')" class="border rounded-xl px-3 py-2 text-sm">Copiar</button>
+          <div class="font-semibold tracking-wide">${C.bankTransfer.account}</div>
+          <button onclick="copyPaymentValue('${C.bankTransfer.account}','Cuenta')" class="border rounded-xl px-3 py-2 text-sm">Copiar</button>
         </div>
       </div>
 
       <div class="mt-4">
         <div class="text-xs text-stone-500">CLABE</div>
         <div class="flex items-center justify-between gap-3 mt-1">
-          <div class="font-semibold tracking-wide break-all">021320064535071827</div>
-          <button onclick="copyPaymentValue('021320064535071827','CLABE')" class="border rounded-xl px-3 py-2 text-sm">Copiar</button>
+          <div class="font-semibold tracking-wide break-all">0213200${C.bankTransfer.account}7</div>
+          <button onclick="copyPaymentValue('0213200${C.bankTransfer.account}7','CLABE')" class="border rounded-xl px-3 py-2 text-sm">Copiar</button>
         </div>
       </div>
 
@@ -1620,7 +1620,7 @@ window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;installBa
 setTimeout(renderInstallBanner,900);
 
 render();
-if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js?v=50');
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js?v=49');
 </script>
 </body>
 </html>
