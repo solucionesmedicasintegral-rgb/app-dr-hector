@@ -1,5 +1,5 @@
 function validarAviso(raw){
- if(!['cita_agendada','pago_confirmado','liga_solicitada','transferencia_elegida'].includes(raw.tipo))throw new Error('Tipo no permitido');
+ if(!['cita_agendada','pago_confirmado','liga_solicitada','transferencia_elegida','recordatorio_cita'].includes(raw.tipo))throw new Error('Tipo no permitido');
  const paciente_id=String(raw.paciente_id||'');
  const cita_id=String(raw.cita_id||'');
  const telefono=String(raw.telefono||'').replace(/\D/g,'').slice(-10);
@@ -8,7 +8,7 @@ function validarAviso(raw){
  const monto=Number(raw.monto||0);
  if(!Number.isFinite(monto)||monto<0)throw new Error('Monto inválido');
  if(raw.tipo==='pago_confirmado'&&(!Number.isFinite(monto)||monto<=0))throw new Error('Monto inválido');
- return {prueba:raw.prueba===true,tipo:raw.tipo,evento_id:`${raw.tipo}:${cita_id}`,paciente_id,cita_id,telefono,starts_at:raw.starts_at,modalidad:raw.modalidad==='virtual'?'virtual':'presencial',monto};
+ return {prueba:raw.prueba===true,tipo:raw.tipo,evento_id:`${raw.tipo}:${cita_id}${raw.tipo==='recordatorio_cita'?':'+raw.starts_at:''}`,paciente_id,cita_id,telefono,starts_at:raw.starts_at,modalidad:raw.modalidad==='virtual'?'virtual':'presencial',monto};
 }
 
 if (typeof module !== 'undefined') module.exports = validarAviso;
