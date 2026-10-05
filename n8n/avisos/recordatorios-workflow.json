@@ -1,0 +1,122 @@
+{
+  "name": "HECTOR - Recordatorios de citas día anterior",
+  "active": false,
+  "nodes": [
+    {
+      "id": "0be6c000-e1ac-4e7e-9c3c-b148f47360f3",
+      "name": "Diario a las 10 México",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 10 * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "id": "4f104e96-e9be-4c64-b891-3457d71008ac",
+      "name": "Consultar citas de mañana",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "parameters": {
+        "method": "POST",
+        "url": "https://solucionesmedicasintegral.app.n8n.cloud/webhook/hector-app-core",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"action\":\"listar_citas_manana\"}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "position": [
+        250,
+        300
+      ]
+    },
+    {
+      "id": "0f04c196-65e8-4af6-a701-db1f6fe97b6e",
+      "name": "Preparar recordatorios",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "function prepararRecordatorios(result,now=new Date()){\n if(result?.ok!==true||!Array.isArray(result.citas))throw new Error('No se pudo consultar la agenda');\n const key=d=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Mexico_City',year:'numeric',month:'2-digit',day:'2-digit'}).format(d);\n const tomorrow=key(new Date(now.getTime()+86400000));\n const seen=new Set(),events=[];\n for(const c of result.citas){\n  if(c.canceled_at||c.cancelled_at||c.canceled||c.cancelled||/cancel/i.test(String(c.status||'')))continue;\n  const starts_at=String(c.starts_at||'');const date=new Date(starts_at);\n  const paciente_id=String(c.person_id||c.paciente_id||'');\n  const cita_id=String(c.cita_id||c.id||'');\n  const telefono=String(c.telefono||'').replace(/\\D/g,'').slice(-10);\n  if(!Number.isFinite(date.getTime())||key(date)!==tomorrow||!/\\d{4}-\\d{2}-\\d{2}T.*(?:Z|[+-]\\d{2}:?\\d{2})$/.test(starts_at)||!/^\\d{1,15}$/.test(paciente_id)||!/^\\d{1,15}$/.test(cita_id)||!/^\\d{10}$/.test(telefono))continue;\n  const id=cita_id+':'+starts_at;if(seen.has(id))continue;seen.add(id);\n  events.push({tipo:'recordatorio_cita',paciente_id,cita_id,telefono,starts_at,modalidad:/virtual|online/i.test(String(c.servicio||'')+' '+String(c.motivo||''))?'virtual':'presencial',monto:0});\n }\n return events;\n}\n\nreturn prepararRecordatorios($input.first().json).map(json=>({json}));"
+      },
+      "position": [
+        500,
+        300
+      ]
+    },
+    {
+      "id": "7c3213fc-ecba-480c-b202-02c77b6e1dc0",
+      "name": "Enviar recordatorio Héctor",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "euohdVVLQiwNYJm6",
+          "mode": "id"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        },
+        "mode": "each"
+      },
+      "position": [
+        750,
+        300
+      ],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Diario a las 10 México": {
+      "main": [
+        [
+          {
+            "node": "Consultar citas de mañana",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consultar citas de mañana": {
+      "main": [
+        [
+          {
+            "node": "Preparar recordatorios",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar recordatorios": {
+      "main": [
+        [
+          {
+            "node": "Enviar recordatorio Héctor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "timezone": "America/Mexico_City",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false
+  }
+}
