@@ -37,6 +37,7 @@
 <div id="installMount"></div>
 <script src="config.js"></script>
 <script src="services.js"></script>
+<script src="admin-operations.js?v=20261005"></script>
 <script>
 const C = window.HECTOR_CONFIG || {};
 const S = window.HECTOR_SERVICES || [];
@@ -60,6 +61,16 @@ let state = {
   patientResults:[],
   orders:[],
   ordersLoaded:false,
+  dashboardErrors:[],
+  ordersUpdatedAt:'',
+  tomorrowAppointments:[],
+  tomorrowLoaded:false,
+  tomorrowUpdatedAt:'',
+  newBookingService:'',
+  newBookingSlots:[],
+  newBookingDate:'',
+  newBookingSlot:-1,
+  newBookingResult:null,
   orderItems:[],
   orderDelivery:'recoger',
   orderShippingCost:250,
@@ -134,9 +145,9 @@ async function loginAdmin(e){
 }
 
 const views=[
-  ['resumen','Resumen','▦'],['pacientes','Pacientes','◉'],['citas','Citas','□'],
-  ['cotizaciones','Cotizaciones','▤'],['pedidos','Pedidos','◇'],
-  ['productos','Productos','◈'],['config','Config','⚙']
+  ['resumen','Inicio','▦'],['citas','Citas','□'],['pacientes','Pacientes','◉'],
+  ['pedidos','Pedidos','◇'],['cotizaciones','Cotizaciones','▤'],
+  ['productos','Catálogo','◈'],['config','Consultorio','⚙']
 ];
 
 function header(){
@@ -175,24 +186,6 @@ function content(){
   }
 }
 
-function resumen(){
-  return `<div class="space-y-4">
-    <section><h2 class="text-2xl font-semibold">Resumen</h2><p class="text-sm text-slate-500 mt-1">Vista general del consultorio y la APP.</p></section>
-    <div class="grid md:grid-cols-3 gap-3">
-      <button onclick="go('pacientes')" class="card rounded-3xl p-5 text-left"><b>Buscar paciente</b><div class="text-sm text-slate-500 mt-1">Consulta directa en Nimbo.</div></button>
-      <button onclick="go('cotizaciones')" class="card rounded-3xl p-5 text-left"><b>Nueva cotización</b><div class="text-sm text-slate-500 mt-1">Generar PDF desde Drive.</div></button>
-      <button onclick="go('citas')" class="card rounded-3xl p-5 text-left"><b>Citas</b><div class="text-sm text-slate-500 mt-1">Gestión de agenda.</div></button>
-    </div>
-    <section class="card rounded-3xl p-5">
-      <div class="flex flex-wrap justify-between items-center gap-3">
-        <div><h3 class="font-semibold text-lg">Confirmaciones de mañana</h3><p class="text-sm text-slate-500 mt-1">Citas de Nimbo listas para confirmar por WhatsApp.</p></div>
-        <button onclick="loadTomorrowAppointments()" class="border rounded-xl px-4 py-2 text-sm">Actualizar</button>
-      </div>
-      <div class="mt-4">${tomorrowCards()}</div>
-    </section>
-  </div>`;
-}
-
 function patientSearchBox(){
   return `<section class="card rounded-3xl p-5">
     <h3 class="font-semibold text-lg">Buscar paciente</h3>
@@ -213,11 +206,12 @@ function patientCard(){
     <div class="text-xs text-slate-400 mt-2">Nimbo ID ${p.id||'—'}</div>
     <div class="grid sm:grid-cols-2 gap-2 mt-4">
       <button onclick="go('cotizaciones')" class="border rounded-xl py-2 px-3 text-sm">Cotizar</button>
-      <button onclick="go('citas')" class="border rounded-xl py-2 px-3 text-sm">Gestionar cita</button>
+      <button onclick="go('citas')" class="btn rounded-xl py-2 px-3 text-sm">Agendar o gestionar cita</button>
     </div>
   </div>`;
 }
 async function findPatient(){
+  resetAdminBooking();
   const el=document.querySelector('#patientPhone');
   const q=(el?.value||'').trim();
 
@@ -279,6 +273,7 @@ function selectPatientResult(i){
   const p=state.patientResults[i];
   if(!p)return;
 
+  resetAdminBooking();
   state.patient=p;
   state.patientResults=[];
   state.orderItems=[];
@@ -387,7 +382,8 @@ async function loadTomorrowAppointments(){
     const r=await core({action:'listar_citas_manana'});
     state.loading=false;
     const all=Array.isArray(r.citas)?r.citas:[];
-    state.tomorrowAppointments=all;
+    state.tomorrowAppointments=all.filter(c=>isTomorrowMX(c.starts_at));
+    state.tomorrowUpdatedAt=new Date().toISOString();
     state.tomorrowLoaded=true;
     render();
     if(!state.tomorrowAppointments.length)toast('No hay citas para mañana');
@@ -719,6 +715,7 @@ function citas(){
   return `<div class="space-y-4">
     <section><h2 class="text-2xl font-semibold">Citas</h2><p class="text-sm text-slate-500 mt-1">Gestión conectada con Nimbo.</p></section>
     ${patientSearchBox()}
+    ${adminBookingPanel()}
     <section class="card rounded-3xl p-5">
       <div class="flex flex-wrap justify-between items-center gap-3">
         <div><h3 class="font-semibold text-lg">Próximas citas</h3><p class="text-sm text-slate-500">Consulta las citas futuras del paciente seleccionado.</p></div>
@@ -1106,6 +1103,7 @@ async function loadOrders(){
     state.orders=r.pedidos.map(o=>({
       ...o,items:Array.isArray(o.items)?o.items:(()=>{try{return JSON.parse(o.items||'[]')}catch(e){return []}})()
     }));
+    state.ordersUpdatedAt=new Date().toISOString();
     state.ordersLoaded=true;
     state.loading=false;
     render();
@@ -1326,9 +1324,11 @@ function productos(){
     </section>
   </div>`;
 }
-function config(){return `<div class="space-y-4"><h2 class="text-2xl font-semibold">Configuración</h2><section class="card rounded-3xl p-5"><div class="text-sm"><div class="text-slate-500">Pago en línea</div><span class="badge gray">Pendiente Mercado Pago / GETNET</span></div></section></div>`}
+
 
 function logout(){
+  resetAdminBooking();
+  state.dashboardErrors=[];state.ordersUpdatedAt='';state.tomorrowUpdatedAt='';state.tomorrowAppointments=[];state.tomorrowLoaded=false;
   state.authorized=false;
   state.pin='';
   state.patient=null;
@@ -1391,7 +1391,7 @@ window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;installBa
 setTimeout(renderInstallBanner,900);
 
 render();
-if('serviceWorker' in navigator) navigator.serviceWorker.register('sw-admin.js?v=31');
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw-admin.js?v=32');
 </script>
 </body>
 </html>
