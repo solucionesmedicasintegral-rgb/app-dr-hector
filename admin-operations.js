@@ -44,9 +44,9 @@ function bankDetailsCard(){
  return `<section class="card rounded-3xl p-5"><h3 class="font-semibold text-lg">Datos para transferencia</h3><p class="text-sm text-slate-500 mt-1">Estos son los datos que ve la paciente al elegir transferencia.</p><dl class="grid sm:grid-cols-2 gap-4 mt-4"><div><dt class="text-xs text-slate-500">Banco y beneficiario</dt><dd class="font-medium">${esc(b.bank||'Por configurar')} · ${esc(b.holder||'')}</dd></div><div><dt class="text-xs text-slate-500">Cuenta</dt><dd>${esc(b.account||'—')}</dd></div><div><dt class="text-xs text-slate-500">CLABE</dt><dd class="break-all">${esc(b.clabe||'—')}</dd></div></dl><p class="text-xs text-slate-500 mt-4">Confirma la recepción del depósito antes de registrar el pago.</p></section>`;
 }
 function config(){
- return `<div class="space-y-4"><h2 class="text-2xl font-semibold">Consultorio</h2>${bankDetailsCard()}<section class="card rounded-3xl p-5"><h3 class="font-semibold text-lg">Avisos y atención</h3><p class="text-sm mt-3">Solicitudes de liga y elección de transferencia: <b>smedicahr@gmail.com</b>.</p><p class="text-sm mt-2">Citas de mañana: consulta y confirma asistencia desde el dashboard.</p><p class="text-sm mt-2">Recordatorio automático por correo: activo, el día anterior a las 10:00 (hora de México). Las citas registradas después de ese corte no quedan cubiertas.</p></section></div>`;
+ return `<div class="space-y-4"><h2 class="text-2xl font-semibold">Consultorio</h2>${bankDetailsCard()}<section class="card rounded-3xl p-5"><h3 class="font-semibold text-lg">Avisos y atención</h3><p class="text-sm mt-3">Solicitudes de liga y elección de transferencia: <b>smedicahr@gmail.com</b>.</p><p class="text-sm mt-2">Citas de mañana: consulta y confirma asistencia desde el dashboard.</p><p class="text-sm mt-2">Recordatorios y confirmaciones: envío manual por WhatsApp desde la agenda de mañana. El recordatorio automático por correo está desactivado.</p></section></div>`;
 }
-function resetAdminBooking(){state.newBookingService='';state.newBookingSlots=[];state.newBookingDate='';state.newBookingSlot=-1;state.newBookingResult=null;}
+function resetAdminBooking(){state.newBookingService='';state.newBookingSlots=[];state.newBookingDate='';state.newBookingMonth='';state.newBookingSlot=-1;state.newBookingResult=null;}
 async function loadAdminBookingSlots(code){
  resetAdminBooking();state.newBookingService=code;
  const service=S.find(s=>s.code===code&&s.bookable===true);
@@ -59,10 +59,36 @@ async function loadAdminBookingSlots(code){
   if(r?.ok===false||!Array.isArray(r?.horarios))throw Error('Disponibilidad inválida');
   if(patientId!==String(state.patient?.id||'')||state.newBookingService!==code)return;
   state.newBookingSlots=r.horarios.filter(s=>/^\d{4}-\d{2}-\d{2}$/.test(s.fecha||'')&&/^\d{2}:\d{2}$/.test(s.hora||''));
-  state.newBookingDate=state.newBookingSlots[0]?.fecha||'';
+  state.newBookingMonth=[...new Set(state.newBookingSlots.map(x=>x.fecha))].sort()[0]?.slice(0,7)||'';
   if(!state.newBookingSlots.length)toast('No hay horarios disponibles para este servicio');
  }catch{toast('No pude consultar disponibilidad');}
  finally{state.loading=false;render();}
+}
+function changeAdminBookingMonth(step){
+ const dates=[...new Set(state.newBookingSlots.map(x=>x.fecha))].sort();
+ if(!dates.length)return;
+ const [year,month]=state.newBookingMonth.split('-').map(Number);
+ const next=new Date(Date.UTC(year,month-1+step,1)).toISOString().slice(0,7);
+ if(next<dates[0].slice(0,7)||next>dates.at(-1).slice(0,7))return;
+ state.newBookingMonth=next;render();
+}
+function selectAdminBookingDate(date){
+ if(!state.newBookingSlots.some(x=>x.fecha===date))return;
+ state.newBookingDate=date;state.newBookingSlot=-1;render();
+}
+function adminBookingCalendar(dates){
+ const available=new Set(dates),month=state.newBookingMonth||dates[0].slice(0,7);
+ const [year,m]=month.split('-').map(Number);
+ const first=new Date(Date.UTC(year,m-1,1));
+ const count=new Date(Date.UTC(year,m,0)).getUTCDate();
+ const offset=(first.getUTCDay()+6)%7;
+ const title=new Intl.DateTimeFormat('es-MX',{month:'long',year:'numeric',timeZone:'UTC'}).format(first);
+ const cells=Array.from({length:offset},()=>'<span aria-hidden="true"></span>');
+ for(let day=1;day<=count;day++){
+  const date=month+'-'+String(day).padStart(2,'0'),enabled=available.has(date),selected=date===state.newBookingDate;
+  cells.push(`<button type="button" ${enabled?'':'disabled'} aria-label="${day} de ${escapeCatalogText(title)}${enabled?'':' sin disponibilidad'}" aria-pressed="${selected}" onclick="selectAdminBookingDate('${date}')" class="rounded-xl p-2 sm:p-3 text-sm border ${selected?'btn':enabled?'bg-white hover:bg-slate-50':'bg-slate-50 text-slate-300 border-transparent'}">${day}</button>`);
+ }
+ return `<div class="border rounded-2xl p-3"><div class="flex justify-between items-center gap-2 mb-3"><button type="button" onclick="changeAdminBookingMonth(-1)" ${month<=dates[0].slice(0,7)?'disabled':''} aria-label="Mes anterior" class="border rounded-lg px-3 py-1">‹</button><b class="text-sm capitalize">${escapeCatalogText(title)}</b><button type="button" onclick="changeAdminBookingMonth(1)" ${month>=dates.at(-1).slice(0,7)?'disabled':''} aria-label="Mes siguiente" class="border rounded-lg px-3 py-1">›</button></div><div class="grid grid-cols-7 gap-1 text-center">${['L','M','M','J','V','S','D'].map(x=>`<span class="text-xs text-slate-500 py-1">${x}</span>`).join('')}${cells.join('')}</div><p class="text-xs text-slate-500 mt-3">Los días atenuados no tienen horarios disponibles.</p></div>`;
 }
 function adminBookingPanel(){
  if(!state.patient?.id)return '';
@@ -71,7 +97,7 @@ function adminBookingPanel(){
  return `<section class="card rounded-3xl p-5"><h3 class="font-semibold text-lg">Agendar nueva cita</h3><p class="text-sm text-slate-500 mt-1">Se guardará en el expediente seleccionado de Nimbo y la paciente podrá consultarla en Mis citas.</p>
  ${state.newBookingResult?`<div role="status" class="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 mt-4"><b>Cita registrada en Nimbo</b><p class="text-sm mt-1">${esc(state.newBookingResult.service)} · ${esc(state.newBookingResult.fecha)} · ${esc(state.newBookingResult.hora)}</p><p class="text-xs mt-2">La paciente puede abrir Mis citas y actualizar. El pago queda pendiente de validación.</p></div>`:''}
  <label for="adminBookingService" class="block text-sm font-medium mt-4">Servicio</label><select id="adminBookingService" class="input mt-2" onchange="loadAdminBookingSlots(this.value)"><option value="">Selecciona el servicio</option>${S.filter(s=>s.bookable===true).map(s=>`<option value="${esc(s.code)}" ${s.code===state.newBookingService?'selected':''}>${esc(s.name)} · ${money(s.promo??s.regular)} · ${esc(s.mode)}</option>`).join('')}</select>
- ${s&&dates.length?`<div class="grid sm:grid-cols-2 gap-4 mt-4"><div><label for="adminBookingDate" class="text-sm font-medium">Fecha disponible</label><select id="adminBookingDate" class="input mt-2" onchange="state.newBookingDate=this.value;state.newBookingSlot=-1;render()">${dates.map(d=>`<option value="${d}" ${d===state.newBookingDate?'selected':''}>${d.split('-').reverse().join('/')}</option>`).join('')}</select></div><div><p class="text-sm font-medium">Horario disponible</p><div class="flex flex-wrap gap-2 mt-2">${state.newBookingSlots.map((x,i)=>x.fecha===state.newBookingDate?`<button onclick="state.newBookingSlot=${i};render()" aria-pressed="${state.newBookingSlot===i}" class="border rounded-xl px-4 py-3 ${state.newBookingSlot===i?'btn':''}">${esc(x.hora)}</button>`:'').join('')}</div></div></div><button onclick="createAdminAppointment()" ${state.newBookingSlot<0?'disabled':''} class="btn rounded-xl px-5 py-3 mt-4 font-semibold">Confirmar nueva cita</button>`:s?'<p class="text-sm text-slate-500 mt-4">No hay horarios disponibles por ahora.</p>':''}</section>`;
+ ${s&&dates.length?`<div class="grid sm:grid-cols-2 gap-4 mt-4"><div><p class="text-sm font-medium mb-2">Selecciona el día</p>${adminBookingCalendar(dates)}</div><div><p class="text-sm font-medium">${state.newBookingDate?'Horarios del '+esc(state.newBookingDate.split('-').reverse().join('/')):'Selecciona primero un día'}</p><div class="flex flex-wrap gap-2 mt-2">${state.newBookingSlots.map((x,i)=>x.fecha===state.newBookingDate?`<button onclick="state.newBookingSlot=${i};render()" aria-pressed="${state.newBookingSlot===i}" class="border rounded-xl px-4 py-3 ${state.newBookingSlot===i?'btn':''}">${esc(x.hora)}</button>`:'').join('')}</div></div></div><button onclick="createAdminAppointment()" ${state.newBookingSlot<0?'disabled':''} class="btn rounded-xl px-5 py-3 mt-4 font-semibold">Confirmar nueva cita</button>`:s?'<p class="text-sm text-slate-500 mt-4">No hay horarios disponibles por ahora.</p>':''}</section>`;
 }
 async function createAdminAppointment(){
  if(state.loading)return;
