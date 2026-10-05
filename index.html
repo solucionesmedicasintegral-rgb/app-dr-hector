@@ -229,6 +229,7 @@ function render(){
   else if(state.view==='products')h=products();
   else if(state.view==='book')h=book();
   else if(state.view==='success')h=success();
+  else if(state.view==='appointmentPayment')h=appointmentPaymentView();
   document.querySelector('#app').innerHTML=shell(h);
 }
 
@@ -567,12 +568,6 @@ function appointmentWhatsAppUrl(c){
   return `https://wa.me/${tel}?text=${encodeURIComponent(msg)}`;
 }
 
-function paymentWhatsAppUrl(c){
-  const tel='5213328489220';
-  const f=formatAppointmentDate(c.starts_at);
-  const msg=`Hola, quiero consultar el pago de mi cita del ${f.fecha} a las ${f.hora}. Mi número de cita es ${appointmentId(c)}.`;
-  return `https://wa.me/${tel}?text=${encodeURIComponent(msg)}`;
-}
 
 function appointmentPaymentNotice(c){
   const estado=String(c.estado_pago||'');
@@ -580,7 +575,7 @@ function appointmentPaymentNotice(c){
   if(estado==='sin_pago')return '<div class="bg-stone-50 rounded-2xl p-3 text-sm text-stone-600">Esta cita no requiere pago anticipado.</div>';
   if(estado==='pendiente_liga')return '<div class="bg-[#fffaf0] rounded-2xl p-3 text-sm text-stone-700">Tu liga de pago está pendiente de envío.</div>';
   if(estado==='pendiente_transferencia')return '<div class="bg-[#fffaf0] rounded-2xl p-3 text-sm text-stone-700">Tu transferencia está pendiente de validación por el consultorio.</div>';
-  return '<div class="bg-stone-50 rounded-2xl p-3 text-sm text-stone-600">Consulta con el consultorio el estado de pago de esta cita.</div>';
+  return '<div class="bg-stone-50 rounded-2xl p-3 text-sm text-stone-600">Elige transferencia bancaria o solicita una liga de pago desde Consultar pago.</div>';
 }
 
 function appointmentId(c){
@@ -905,7 +900,7 @@ function appointments(){
              class="border rounded-2xl py-3 text-center font-semibold">
              Contactar por WhatsApp
           </a>
-          ${c.estado_pago!=='pagado' && c.estado_pago!=='sin_pago'?`<a href="${paymentWhatsAppUrl(c)}" target="_blank" rel="noopener" class="border rounded-2xl py-3 text-center font-semibold">Consultar pago</a>`:''}
+          ${c.estado_pago!=='pagado' && c.estado_pago!=='sin_pago'?`<button onclick="openAppointmentPayment('${appointmentId(c)}')" class="border rounded-2xl py-3 text-center font-semibold">Consultar pago</button>`:''}
         </div>
       </article>`;
     }).join('')}
@@ -1214,6 +1209,7 @@ function services(){
 }
 
 function pickService(code){
+  state.paymentStatus=null;state.paymentMethod=null;
   state.service=S.find(x=>x.code===code);
   state.view='book';
   state.slots=[];
@@ -1416,6 +1412,28 @@ async function confirmBooking(){
 }
 
 
+function openAppointmentPayment(id){
+ if(state.loading)return;
+ const c=state.appointments.find(x=>appointmentId(x)===String(id));
+ if(!c)return toast('Actualiza tus citas e intenta nuevamente');
+ if(['pagado','sin_pago'].includes(c.estado_pago))return;
+ const normalize=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase();
+ const service=S.find(x=>x.code===c.servicio_id)||S.find(x=>x.bookable===true&&[x.cause,x.name].some(label=>normalize(label)===normalize(c.motivo||c.servicio||c.cause)));
+ const date=new Date(c.starts_at);
+ if(!Number.isFinite(date.getTime()))return toast('No pude identificar la fecha de esta cita');
+ const parts=Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:'America/Mexico_City',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(date).map(x=>[x.type,x.value]));
+ const savedAmount=Number(c.monto);
+ state.bookingResult={service:service?{...service,...(Number.isFinite(savedAmount)&&savedAmount>0?{promo:savedAmount}:{})}:null,slot:{fecha:`${parts.year}-${parts.month}-${parts.day}`,hora:`${parts.hour}:${parts.minute}`},response:{cita:{id:appointmentId(c)}}};
+ state.paymentStatus=['pendiente_liga','pendiente_transferencia'].includes(c.estado_pago)?c.estado_pago:null;
+ state.paymentMethod=null;state.paymentAppointment=c;state.view='appointmentPayment';render();
+}
+function appointmentPaymentView(){
+ const c=state.paymentAppointment,b=state.bookingResult;
+ if(!c||!b)return '<section class="card rounded-3xl p-6"><button onclick="openAppointments()">Volver a Mis citas</button></section>';
+ const f=formatAppointmentDate(c.starts_at);
+ return `<section class="card rounded-3xl p-6"><button onclick="openAppointments()" class="text-sm gold">← Mis citas</button><h2 class="text-2xl font-semibold mt-3">Pago de tu cita</h2><p class="font-medium mt-3">${escapeCatalogText(b.service?.name||c.motivo||c.servicio||'Consulta')}</p><p class="text-sm text-stone-500 mt-1">${escapeCatalogText(f.fecha)} · ${escapeCatalogText(f.hora)}</p>${b.service?`<p class="font-semibold mt-3">Importe: ${money(b.service.promo??b.service.regular)}</p>${paymentSection()}${patientAlertBanner()}`:`<p class="text-sm mt-4">El consultorio necesita confirmar el importe de esta cita antes de solicitar el pago.</p><a href="${appointmentWhatsAppUrl(c)}" target="_blank" rel="noopener" class="block border rounded-2xl py-3 mt-4 text-center">Consultar importe con el consultorio</a>`}</section>`;
+}
+
 async function copyPaymentValue(value,label){
   try{
     await navigator.clipboard.writeText(String(value||''));
@@ -1426,6 +1444,7 @@ async function copyPaymentValue(value,label){
 }
 
 async function choosePayment(method){
+  if(state.loading)return;
   const b=state.bookingResult;
   if(!b)return;
   const citaId=String(b.response?.cita?.id||'').trim();
@@ -1439,7 +1458,7 @@ async function choosePayment(method){
     action:'solicitar_pago_paciente',
     cita_id:citaId,
     paciente_id:String(state.patient?.id||''),
-    telefono:String(state.patient?.telefono||state.patient?.telephone2||state.patient?.telephone||''),
+    telefono:String(state.patient?.telefono||state.patient?.telephone2||state.patient?.telephone||state.phone||''),
     email:String(state.patient?.email||''),
     servicio_id:String(b.service?.code||b.service?.id||''),
     monto:Number(b.service?.promo??b.service?.regular??0),
@@ -1458,11 +1477,12 @@ async function choosePayment(method){
     state.loading=false;
     state.paymentMethod=method;
     state.paymentStatus=esperado;
+    state.appointments=state.appointments.map(c=>appointmentId(c)===citaId?{...c,estado_pago:esperado}:c);
     render();
   }catch(e){
     state.loading=false;
     render();
-    toast('Tu cita sí quedó agendada, pero no pude registrar la forma de pago');
+    toast('No pude registrar la forma de pago. Tu cita sigue registrada; intenta nuevamente.');
   }
 }
 
@@ -1518,8 +1538,8 @@ function paymentSection(){
       <div class="mt-4">
         <div class="text-xs text-stone-500">CLABE</div>
         <div class="flex items-center justify-between gap-3 mt-1">
-          <div class="font-semibold tracking-wide break-all">0213200${C.bankTransfer.account}7</div>
-          <button onclick="copyPaymentValue('0213200${C.bankTransfer.account}7','CLABE')" class="border rounded-xl px-3 py-2 text-sm">Copiar</button>
+          <div class="font-semibold tracking-wide break-all">${C.bankTransfer.clabe}</div>
+          <button onclick="copyPaymentValue('${C.bankTransfer.clabe}','CLABE')" class="border rounded-xl px-3 py-2 text-sm">Copiar</button>
         </div>
       </div>
 
@@ -1620,7 +1640,7 @@ window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;installBa
 setTimeout(renderInstallBanner,900);
 
 render();
-if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js?v=49');
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js?v=50');
 </script>
 </body>
 </html>
