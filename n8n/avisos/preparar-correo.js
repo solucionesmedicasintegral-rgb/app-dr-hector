@@ -19,10 +19,11 @@ function prepararCorreo(evento, result) {
   return {...evento,email,asunto,html};
  }
  const pago=evento.tipo==='pago_confirmado';
- const asunto=(evento.prueba?'[PRUEBA] ':'')+(pago?'Pago confirmado':'Cita agendada')+' · Dr. Héctor Carrillo';
- const titulo=evento.prueba?'Prueba del aviso de '+(pago?'pago':'cita'):pago?'Recibimos tu pago':'Tu cita quedó agendada';
+ const recordatorio=evento.tipo==='recordatorio_cita';
+ const asunto=(evento.prueba?'[PRUEBA] ':'')+(recordatorio?'Recordatorio de tu cita':pago?'Pago confirmado':'Cita agendada')+' · Dr. Héctor Carrillo';
+ const titulo=evento.prueba?'Prueba del aviso de '+(recordatorio?'recordatorio':pago?'pago':'cita'):recordatorio?'Te esperamos mañana':pago?'Recibimos tu pago':'Tu cita quedó agendada';
  const monto=new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN'}).format(evento.monto||0);
- const texto=evento.prueba?'Este es un correo de prueba del sistema. No crea una cita ni registra un pago real.':pago?'El consultorio confirmó tu pago por '+monto+'.':'Registramos tu cita con el Dr. Héctor Carrillo. Puedes consultar el estado de tu pago en la app.';
+ const texto=evento.prueba?'Este es un correo de prueba del sistema. No crea una cita ni registra un pago real.':recordatorio?'Te recordamos tu cita de mañana con el Dr. Héctor Carrillo. Revisa la fecha, hora y modalidad que aparecen abajo. Si necesitas ayuda, contacta al consultorio.':pago?'El consultorio confirmó tu pago por '+monto+'.':'Registramos tu cita con el Dr. Héctor Carrillo. Puedes consultar el estado de tu pago en la app.';
  const html=`<div style="background:#f7f4ec;padding:24px;font-family:Arial;color:#272727"><div style="max-width:560px;margin:auto;background:white;border-radius:20px;overflow:hidden"><div style="background:#2d371d;color:white;padding:24px;font-size:21px;font-weight:bold">Dr. Héctor Carrillo</div><div style="padding:24px"><h1>${esc(titulo)}</h1><p>${esc(texto)}</p><p><b>Fecha:</b> ${esc(fecha)}<br><b>Hora:</b> ${esc(hora)}<br><b>Modalidad:</b> ${evento.modalidad==='virtual'?'Virtual':'Presencial'}</p><a href="https://solucionesmedicasintegral-rgb.github.io/app-dr-hector/" style="display:inline-block;background:#2d371d;color:white;padding:14px 20px;border-radius:12px;text-decoration:none">Ver mi cita</a><p style="font-size:12px;color:#777">Si necesitas ayuda, contacta al consultorio.</p></div></div></div>`;
  return {...evento,email,asunto,html};
 }
