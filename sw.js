@@ -1,4 +1,4 @@
-const C='hector-pwa-v51';
+const C='hector-pwa-v52';
 self.addEventListener('install',e=>{
   self.skipWaiting();
   e.waitUntil(caches.open(C).then(c=>c.addAll([
