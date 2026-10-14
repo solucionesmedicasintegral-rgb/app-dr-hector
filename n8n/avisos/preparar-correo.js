@@ -1,5 +1,5 @@
 function prepararCorreo(evento, result) {
- const p=result.encontrado === true ? result.paciente : null;
+ const p=result.encontrado===true ? (Array.isArray(result.pacientes)?result.pacientes:(result.paciente?[result.paciente]:[])).find(p=>String(p.id||p.person_id||p.patient_id||'')===String(evento.paciente_id)) : null;
  const id=String(p?.id||p?.person_id||p?.patient_id||'');
  const liga=evento.tipo==='liga_solicitada';
  const transferencia=evento.tipo==='transferencia_elegida';
