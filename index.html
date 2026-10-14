@@ -99,7 +99,7 @@ body{background:var(--cream);font-family:Inter,system-ui,sans-serif;color:#24242
 <script>
 const C=HECTOR_CONFIG,S=HECTOR_SERVICES;
 
-let state={
+function initialPatientState(){return {
   patient:null,
   phone:'',
   view:'login',
@@ -128,7 +128,8 @@ let state={
   productSearch:'',
   rebooking:null,
   rebookingDuration:60
-};
+};}
+let state=initialPatientState();
 
 const money=n=>n==null?'—':new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN',maximumFractionDigits:0}).format(n);
 
@@ -198,7 +199,7 @@ function shell(content){
         </div>
       </div>
     </header>
-    <main class="${wide?'max-w-4xl':'max-w-xl'} mx-auto p-4 -mt-3">${content}</main>
+    <main class="${wide?'max-w-4xl':'max-w-xl'} mx-auto p-4 -mt-3">${state.patient && state.patientCandidates?.length>1?`<div class="card rounded-2xl p-3 mb-3 flex justify-between gap-3 items-center"><span class="text-sm">Expediente: <b>${escapeCatalogText(state.patient.nombre||state.patient.first_name||'Paciente')}</b></span><button onclick="go('choosePatient')" class="gold text-sm font-semibold">Cambiar expediente</button></div>`:''}${content}</main>
     ${state.patient && state.view!=='success'?nav():''}
     ${loader()}
   </div>`;
@@ -219,7 +220,8 @@ function nav(){
 function render(){
   let h='';
   if(state.view==='login')h=login();
-  else if(state.view==='register')h=register();
+  else if(state.view==='notFound')h=patientNotFound();
+  else if(state.view==='choosePatient')h=choosePatient();
   else if(state.view==='home')h=home();
   else if(state.view==='services')h=services();
   else if(state.view==='appointments')h=appointments();
@@ -252,82 +254,39 @@ async function findPatient(){
   try{
     const r=await api({action:'buscar_paciente',telefono:p});
     state.loading=false;
-    if(r.encontrado){
-      state.patient=r.paciente;
-      state.appointments=[];
-      state.appointmentsLoaded=false;
-      state.orders=[];
-      state.ordersLoaded=false;
-      state.ordersError=false;
-      state.medicalAccess=null;
-      state.medicalAccessExpires=0;
-      state.medicalDocuments=[];
-      state.medicalDocumentsLoaded=false;
-      state.medicalAccessRequested=false;
-      state.products=[];
-      state.productsLoaded=false;
-      state.productSearch='';
-      state.view='home';
-    }else{
-      state.view='register';
-    }
+    const candidates=Array.isArray(r.pacientes)?r.pacientes:(r.encontrado&&r.paciente?[r.paciente]:[]);
+    state.patientCandidates=candidates.filter(p=>p && (p.id||p.person_id||p.patient_id));
+    if(state.patientCandidates.length===1){selectPatient(0);return;}
+    state.patient=null;
+    state.view=state.patientCandidates.length?'choosePatient':'notFound';
     render();
   }catch(e){
     state.loading=false;render();toast('No pude conectar con Nimbo');
   }
 }
 
-function register(){
-  return `<section class="card rounded-3xl p-5">
-    <button onclick="go('login')" class="text-sm gold">← Regresar</button>
-    <h2 class="text-xl font-semibold mt-3">Crear expediente</h2>
-    <p class="text-sm text-stone-500 mt-1">Solo pedimos los datos necesarios para registrarte.</p>
-    <div class="grid gap-3 mt-4">
-      <input id="fn" class="border rounded-xl p-3" placeholder="Nombre(s)">
-      <input id="ln" class="border rounded-xl p-3" placeholder="Apellidos">
-      <input id="dob" type="date" class="border rounded-xl p-3">
-      <select id="gender" class="border rounded-xl p-3">
-        <option value="">Sexo</option><option value="f">Femenino</option><option value="m">Masculino</option>
-      </select>
-      <input id="email" type="email" class="border rounded-xl p-3" placeholder="Correo electrónico">
-      <input value="${state.phone}" disabled class="border rounded-xl p-3 bg-stone-100">
-    </div>
-    <button onclick="createPatient()" class="btn w-full rounded-2xl py-4 mt-4 font-semibold">Crear expediente</button>
+function patientNotFound(){
+  return `<section class="card rounded-3xl p-6">
+    <h2 class="text-xl font-semibold">No localizamos tu expediente</h2>
+    <p class="text-stone-500 mt-3">No encontramos un expediente asociado a este número. Contacta al consultorio para verificar tus datos o solicitar tu registro.</p>
+    <a href="https://wa.me/5213328489220?text=${encodeURIComponent('Hola, no localizo mi expediente en la app del Dr. Héctor. ¿Me ayudan a verificar mi número?')}" target="_blank" rel="noopener" class="btn block text-center rounded-2xl py-4 mt-5 font-semibold">Contactar al consultorio</a>
+    <button onclick="go('login')" class="w-full border rounded-2xl py-4 mt-3">Revisar mi número</button>
   </section>`;
 }
-
-async function createPatient(){
-  const b={
-    action:'crear_paciente',
-    telefono:state.phone,
-    first_name:document.querySelector('#fn').value.trim(),
-    last_name:document.querySelector('#ln').value.trim(),
-    born_at:document.querySelector('#dob').value,
-    gender:document.querySelector('#gender').value,
-    email:document.querySelector('#email').value.trim()
-  };
-  if(!b.first_name||!b.last_name||!b.born_at||!b.gender||!b.email)return toast('Completa todos los campos');
-  setLoading(true,'Creando tu expediente…');
-  try{
-    const r=await api(b);
-    state.patient=r.paciente;
-    state.loading=false;
-    state.products=[];
-    state.productsLoaded=false;
-    state.productSearch='';
-    state.orders=[];
-    state.ordersLoaded=false;
-    state.ordersError=false;
-    state.medicalAccess=null;
-    state.medicalAccessExpires=0;
-    state.medicalDocuments=[];
-    state.medicalDocumentsLoaded=false;
-    state.medicalAccessRequested=false;
-    state.view='home';
-    render();toast('Expediente creado');
-  }catch(e){
-    state.loading=false;render();toast('No se pudo crear el expediente');
-  }
+function choosePatient(){
+  return `<section class="card rounded-3xl p-6">
+    <button onclick="go('login')" class="gold text-sm">← Revisar número</button>
+    <h2 class="text-xl font-semibold mt-3">¿Para quién deseas agendar?</h2>
+    <p class="text-stone-500 mt-2">Elige el expediente asociado a tu número. Las citas se guardarán en el expediente que selecciones.</p>
+    <div class="grid gap-3 mt-5">${(state.patientCandidates||[]).map((p,i)=>`<button onclick="selectPatient(${i})" class="border rounded-2xl px-4 py-4 text-left font-semibold">${escapeCatalogText(p.nombre||[p.first_name,p.last_name].filter(Boolean).join(' ')||'Paciente')}<span class="block text-xs font-normal text-stone-500 mt-1">Expediente ${escapeCatalogText(p.id||p.person_id||p.patient_id)}</span></button>`).join('')}</div>
+  </section>`;
+}
+function selectPatient(index){
+  const patient=state.patientCandidates?.[index];
+  if(!patient)return;
+  const phone=state.phone,patientCandidates=state.patientCandidates;
+  state={...initialPatientState(),phone,patient,patientCandidates,view:'home'};
+  render();
 }
 
 function homeIcon(kind){
@@ -1641,7 +1600,7 @@ window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;installBa
 setTimeout(renderInstallBanner,900);
 
 render();
-if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js?v=52');
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js?v=53');
 </script>
 </body>
 </html>
