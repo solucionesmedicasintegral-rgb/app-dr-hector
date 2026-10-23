@@ -39,7 +39,8 @@ function buildHospitalDesignRequests(body,doc,replacements){
  const perPage=3;
  const pages=Math.ceil(hospitals.length/perPage);
  for(let page=0;page<pages;page++){
-  add('DR. HÉCTOR CARRILLO','brand',{pageBreak:true});
+  add(' ','pageTop');
+  add('DR. HÉCTOR CARRILLO','brand');
   add('Opciones de hospital','title');
   add(`PRESUPUESTO ESTIMADO PARA CIRUGÍA  |  ${page+1} / ${pages}`,'kicker');
   add(`Paciente: ${clean(body.paciente?.nombre)}`,'meta');
@@ -62,21 +63,22 @@ function buildHospitalDesignRequests(body,doc,replacements){
  }
  const requests=[{insertText:{location:{index:start},text}}];
  const full={startIndex:start+1,endIndex:start+text.length};
- requests.push({updateTextStyle:{range:full,textStyle:{weightedFontFamily:{fontFamily:'Arial'},fontSize:{magnitude:9,unit:'PT'},bold:false,italic:false,underline:false,foregroundColor:{color:{rgbColor:ink}},backgroundColor:{color:{rgbColor:{red:1,green:1,blue:1}}}},fields:'weightedFontFamily,fontSize,bold,italic,underline,foregroundColor,backgroundColor'}});
  requests.push({updateParagraphStyle:{range:full,paragraphStyle:{namedStyleType:'NORMAL_TEXT',alignment:'START',lineSpacing:110,spaceAbove:{magnitude:0,unit:'PT'},spaceBelow:{magnitude:0,unit:'PT'},indentStart:{magnitude:0,unit:'PT'},indentEnd:{magnitude:0,unit:'PT'},indentFirstLine:{magnitude:0,unit:'PT'},keepWithNext:false,pageBreakBefore:false},fields:'namedStyleType,alignment,lineSpacing,spaceAbove,spaceBelow,indentStart,indentEnd,indentFirstLine,keepWithNext,pageBreakBefore'}});
+ requests.push({updateTextStyle:{range:full,textStyle:{weightedFontFamily:{fontFamily:'Arial'},fontSize:{magnitude:9,unit:'PT'},bold:false,italic:false,underline:false,foregroundColor:{color:{rgbColor:ink}},backgroundColor:{color:{rgbColor:{red:1,green:1,blue:1}}}},fields:'weightedFontFamily,fontSize,bold,italic,underline,foregroundColor,backgroundColor'}});
  const border=c=>({color:{color:{rgbColor:c}},width:{magnitude:0.75,unit:'PT'},padding:{magnitude:7,unit:'PT'},dashStyle:'SOLID'});
  const images=[];
  for(const r of rows){
   const range={startIndex:r.from,endIndex:r.to};
   const p={avoidWidowAndOrphan:true},t={};
   switch(r.kind){
-   case 'brand':Object.assign(p,{pageBreakBefore:true,spaceAbove:{magnitude:14,unit:'PT'},spaceBelow:{magnitude:8,unit:'PT'},keepWithNext:true});Object.assign(t,{fontSize:{magnitude:9,unit:'PT'},bold:true,foregroundColor:{color:{rgbColor:gold}}});break;
+   case 'pageTop':Object.assign(p,{pageBreakBefore:true,spaceBelow:{magnitude:12,unit:'PT'},keepWithNext:true});Object.assign(t,{fontSize:{magnitude:10,unit:'PT'}});break;
+   case 'brand':Object.assign(p,{spaceAbove:{magnitude:14,unit:'PT'},spaceBelow:{magnitude:8,unit:'PT'},keepWithNext:true});Object.assign(t,{fontSize:{magnitude:9,unit:'PT'},bold:true,foregroundColor:{color:{rgbColor:gold}}});break;
    case 'title':Object.assign(p,{spaceBelow:{magnitude:5,unit:'PT'},keepWithNext:true});Object.assign(t,{weightedFontFamily:{fontFamily:'Georgia'},fontSize:{magnitude:23,unit:'PT'},foregroundColor:{color:{rgbColor:green}}});break;
    case 'kicker':Object.assign(p,{spaceBelow:{magnitude:14,unit:'PT'},keepWithNext:true});Object.assign(t,{fontSize:{magnitude:8,unit:'PT'},foregroundColor:{color:{rgbColor:gray}}});break;
    case 'meta':Object.assign(p,{spaceBelow:{magnitude:4,unit:'PT'},keepWithNext:true});Object.assign(t,{fontSize:{magnitude:8.5,unit:'PT'},foregroundColor:{color:{rgbColor:gray}}});break;
    case 'summary':Object.assign(p,{spaceAbove:{magnitude:9,unit:'PT'},spaceBelow:{magnitude:13,unit:'PT'},borderBottom:border(gold),keepWithNext:true});Object.assign(t,{fontSize:{magnitude:11,unit:'PT'},bold:true,foregroundColor:{color:{rgbColor:green}}});break;
    case 'intro':Object.assign(p,{spaceBelow:{magnitude:12,unit:'PT'},keepWithNext:true});Object.assign(t,{fontSize:{magnitude:8.5,unit:'PT'},foregroundColor:{color:{rgbColor:gray}}});break;
-   case 'logo':Object.assign(p,{alignment:'END',spaceAbove:{magnitude:8,unit:'PT'},spaceBelow:{magnitude:0,unit:'PT'},keepWithNext:true});Object.assign(t,{fontSize:{magnitude:1,unit:'PT'}});{const scale=Math.min(115/r.logo.w,29/r.logo.h);images.push({index:r.from,uri:assetRoot+r.logo.file,w:r.logo.w*scale,h:r.logo.h*scale});}break;
+   case 'logo':Object.assign(p,{alignment:'START',spaceAbove:{magnitude:8,unit:'PT'},spaceBelow:{magnitude:0,unit:'PT'},keepWithNext:true});Object.assign(t,{fontSize:{magnitude:1,unit:'PT'}});{const scale=Math.min(115/r.logo.w,34/r.logo.h);images.push({index:r.from,uri:assetRoot+r.logo.file,w:r.logo.w*scale,h:r.logo.h*scale});}break;
    case 'hospital':Object.assign(p,{spaceAbove:{magnitude:11,unit:'PT'},spaceBelow:{magnitude:7,unit:'PT'},keepWithNext:true});Object.assign(t,{fontSize:{magnitude:11,unit:'PT'},bold:true,foregroundColor:{color:{rgbColor:green}}});break;
    case 'cost':Object.assign(p,{spaceBelow:{magnitude:4,unit:'PT'},keepWithNext:true});Object.assign(t,{fontSize:{magnitude:9,unit:'PT'},foregroundColor:{color:{rgbColor:gray}}});break;
    case 'total':Object.assign(p,{spaceBelow:{magnitude:3,unit:'PT'},keepWithNext:true});Object.assign(t,{fontSize:{magnitude:11,unit:'PT'},bold:true,foregroundColor:{color:{rgbColor:green}}});break;
