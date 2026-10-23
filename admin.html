@@ -38,6 +38,7 @@
 <script src="config.js"></script>
 <script src="services.js"></script>
 <script src="admin-operations.js?v=20261005"></script>
+<script src="hospital-quotes.js?v=20261023"></script>
 <script>
 const C = window.HECTOR_CONFIG || {};
 const S = window.HECTOR_SERVICES || [];
@@ -212,6 +213,7 @@ function patientCard(){
 }
 async function findPatient(){
   resetAdminBooking();
+  resetHospitalQuote();
   const el=document.querySelector('#patientPhone');
   const q=(el?.value||'').trim();
 
@@ -276,6 +278,7 @@ async function findPatient(){
 }
 
 function selectPatientResult(i){
+  resetHospitalQuote();
   const p=state.patientResults[i];
   if(!p)return;
 
@@ -756,6 +759,7 @@ function refreshQuoteTotal(){
   state.quoteResult=null;
   const el=document.querySelector('#quoteTotal');
   if(el)el.textContent=money(quoteTotal());
+  refreshHospitalQuotePreview();
 }
 function updateQuoteListPrice(i,v){
   state.quoteItems[i].precio_lista=Number(v||0);
@@ -872,6 +876,7 @@ function cotizaciones(){
           </div>`).join(''):`<div class="border border-dashed rounded-2xl p-5 text-sm text-slate-500">Agrega un servicio desde el catálogo inferior.</div>`}
         </div>
         <div class="flex justify-between border-t mt-5 pt-4"><b>Total</b><b id="quoteTotal">${money(quoteTotal())}</b></div>
+        ${hospitalQuoteOptions()}
         <button onclick="generateQuote()" class="btn w-full rounded-2xl py-4 mt-4 font-semibold" ${(!state.patient||!state.quoteItems.length)?'disabled':''}>Generar cotización PDF</button>
         ${quoteResultCard()}
       </section>
@@ -899,6 +904,8 @@ function cotizaciones(){
 async function generateQuote(){
   if(!state.patient||!state.quoteItems.length)return;
   if(!C.quoteWebhook)return toast('Falta configurar quoteWebhook');
+  let hospitales=[];
+  try{hospitales=selectedQuoteHospitals();}catch(e){return toast(e.message);}
   setLoading(true,'Generando cotización…');
   const payload={
     numero_cotizacion:'HC-'+Date.now(),
@@ -920,7 +927,8 @@ async function generateQuote(){
       precio:effectiveQuotePrice(x),
       nimbo_item_id:x.nimbo_item_id||null
     })),
-    total:quoteTotal()
+    total:quoteTotal(),
+    hospitales
   };
   try{
     const resp=await fetch(C.quoteWebhook,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
@@ -1334,6 +1342,7 @@ function productos(){
 
 function logout(){
   resetAdminBooking();
+  resetHospitalQuote();
   state.dashboardErrors=[];state.ordersUpdatedAt='';state.tomorrowUpdatedAt='';state.tomorrowAppointments=[];state.tomorrowLoaded=false;
   state.authorized=false;
   state.pin='';
@@ -1397,7 +1406,7 @@ window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;installBa
 setTimeout(renderInstallBanner,900);
 
 render();
-if('serviceWorker' in navigator) navigator.serviceWorker.register('sw-admin.js?v=36');
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw-admin.js?v=37');
 </script>
 </body>
 </html>
