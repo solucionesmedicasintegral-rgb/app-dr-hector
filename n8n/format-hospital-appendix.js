@@ -36,32 +36,34 @@ function buildHospitalDesignRequests(body,doc,replacements){
  const green=color('2d371d'),gold=color('a88a44'),gray=color('62665d'),ink=color('282e25'),line=color('dcdccd');
  const rows=[];let text='\n';
  const add=(value,kind,extra={})=>{const row={from:start+text.length,to:start+text.length+value.length,kind,...extra};text+=value+'\n';rows.push(row);return row;};
- const pages=Math.ceil(hospitals.length/4);
+ const perPage=3;
+ const pages=Math.ceil(hospitals.length/perPage);
  for(let page=0;page<pages;page++){
   add('DR. HÉCTOR CARRILLO','brand',{pageBreak:true});
   add('Opciones de hospital','title');
   add(`PRESUPUESTO ESTIMADO PARA CIRUGÍA  |  ${page+1} / ${pages}`,'kicker');
   add(`Paciente: ${clean(body.paciente?.nombre)}`,'meta');
   add(`Cotización: ${clean(body.numero_cotizacion)}   |   ${clean(body.fecha)}   |   MXN`,'meta');
-  add(`Conceptos cotizados\t${money(total)}`,'summary');
+  add(`Conceptos cotizados: ${money(total)}`,'summary');
   add('Compara cada opción. El gasto hospitalario se estima por separado.','intro');
-  hospitals.slice(page*4,page*4+4).forEach((h,j)=>{
+  hospitals.slice(page*perPage,page*perPage+perPage).forEach((h,j)=>{
    const logo=logos.find(l=>normalize(h.nombre).includes(l.match));
-   add(`${String(page*4+j+1).padStart(2,'0')}   ${h.nombre}${logo?'\t':''}`,'hospital',{logo});
-   add(`Gasto hospitalario estimado\t${range(h.minimo,h.maximo)}`,'cost');
-   add(`Total estimado\t${range(total+h.minimo,total+h.maximo)}`,'total');
+   if(logo)add(' ','logo',{logo});
+   add(`${String(page*perPage+j+1).padStart(2,'0')}   ${h.nombre}`,'hospital');
+   add(`Gasto hospitalario estimado: ${range(h.minimo,h.maximo)}`,'cost');
+   add(`Total estimado: ${range(total+h.minimo,total+h.maximo)}`,'total');
    add('Conceptos cotizados + una opción de hospital','caption');
   });
   add('IMPORTANTE PARA TU PRESUPUESTO','noteHeading');
   add('Los hospitales son alternativas: sus importes no se suman entre sí.','note');
   add('Rangos de referencia del consultorio; pendientes de confirmación por el hospital.','note');
   add('El monto y lo que incluye se confirman según procedimiento, insumos y estancia.','note');
-  add('El gasto hospitalario no está incluido en el total de conceptos de la primera hoja.','note');
+  add('El gasto hospitalario no está incluido en el total de conceptos de la primera hoja.','note',{lastNote:true});
  }
  const requests=[{insertText:{location:{index:start},text}}];
  const full={startIndex:start+1,endIndex:start+text.length};
  requests.push({updateTextStyle:{range:full,textStyle:{weightedFontFamily:{fontFamily:'Arial'},fontSize:{magnitude:9,unit:'PT'},bold:false,italic:false,underline:false,foregroundColor:{color:{rgbColor:ink}},backgroundColor:{color:{rgbColor:{red:1,green:1,blue:1}}}},fields:'weightedFontFamily,fontSize,bold,italic,underline,foregroundColor,backgroundColor'}});
- requests.push({updateParagraphStyle:{range:full,paragraphStyle:{namedStyleType:'NORMAL_TEXT',alignment:'START',lineSpacing:110,spaceAbove:{magnitude:0,unit:'PT'},spaceBelow:{magnitude:0,unit:'PT'},indentStart:{magnitude:0,unit:'PT'},indentEnd:{magnitude:0,unit:'PT'},indentFirstLine:{magnitude:0,unit:'PT'},keepWithNext:false,pageBreakBefore:false,tabStops:[{offset:{magnitude:480,unit:'PT'},alignment:'END'}]},fields:'namedStyleType,alignment,lineSpacing,spaceAbove,spaceBelow,indentStart,indentEnd,indentFirstLine,keepWithNext,pageBreakBefore,tabStops'}});
+ requests.push({updateParagraphStyle:{range:full,paragraphStyle:{namedStyleType:'NORMAL_TEXT',alignment:'START',lineSpacing:110,spaceAbove:{magnitude:0,unit:'PT'},spaceBelow:{magnitude:0,unit:'PT'},indentStart:{magnitude:0,unit:'PT'},indentEnd:{magnitude:0,unit:'PT'},indentFirstLine:{magnitude:0,unit:'PT'},keepWithNext:false,pageBreakBefore:false},fields:'namedStyleType,alignment,lineSpacing,spaceAbove,spaceBelow,indentStart,indentEnd,indentFirstLine,keepWithNext,pageBreakBefore'}});
  const border=c=>({color:{color:{rgbColor:c}},width:{magnitude:0.75,unit:'PT'},padding:{magnitude:7,unit:'PT'},dashStyle:'SOLID'});
  const images=[];
  for(const r of rows){
@@ -74,12 +76,13 @@ function buildHospitalDesignRequests(body,doc,replacements){
    case 'meta':Object.assign(p,{spaceBelow:{magnitude:4,unit:'PT'},keepWithNext:true});Object.assign(t,{fontSize:{magnitude:8.5,unit:'PT'},foregroundColor:{color:{rgbColor:gray}}});break;
    case 'summary':Object.assign(p,{spaceAbove:{magnitude:9,unit:'PT'},spaceBelow:{magnitude:13,unit:'PT'},borderBottom:border(gold),keepWithNext:true});Object.assign(t,{fontSize:{magnitude:11,unit:'PT'},bold:true,foregroundColor:{color:{rgbColor:green}}});break;
    case 'intro':Object.assign(p,{spaceBelow:{magnitude:12,unit:'PT'},keepWithNext:true});Object.assign(t,{fontSize:{magnitude:8.5,unit:'PT'},foregroundColor:{color:{rgbColor:gray}}});break;
-   case 'hospital':Object.assign(p,{spaceAbove:{magnitude:11,unit:'PT'},spaceBelow:{magnitude:7,unit:'PT'},keepWithNext:true});Object.assign(t,{fontSize:{magnitude:11,unit:'PT'},bold:true,foregroundColor:{color:{rgbColor:green}}});if(r.logo){const scale=Math.min(115/r.logo.w,29/r.logo.h);images.push({index:r.to,uri:assetRoot+r.logo.file,w:r.logo.w*scale,h:r.logo.h*scale});}break;
+   case 'logo':Object.assign(p,{alignment:'END',spaceAbove:{magnitude:8,unit:'PT'},spaceBelow:{magnitude:0,unit:'PT'},keepWithNext:true});Object.assign(t,{fontSize:{magnitude:1,unit:'PT'}});{const scale=Math.min(115/r.logo.w,29/r.logo.h);images.push({index:r.from,uri:assetRoot+r.logo.file,w:r.logo.w*scale,h:r.logo.h*scale});}break;
+   case 'hospital':Object.assign(p,{spaceAbove:{magnitude:11,unit:'PT'},spaceBelow:{magnitude:7,unit:'PT'},keepWithNext:true});Object.assign(t,{fontSize:{magnitude:11,unit:'PT'},bold:true,foregroundColor:{color:{rgbColor:green}}});break;
    case 'cost':Object.assign(p,{spaceBelow:{magnitude:4,unit:'PT'},keepWithNext:true});Object.assign(t,{fontSize:{magnitude:9,unit:'PT'},foregroundColor:{color:{rgbColor:gray}}});break;
    case 'total':Object.assign(p,{spaceBelow:{magnitude:3,unit:'PT'},keepWithNext:true});Object.assign(t,{fontSize:{magnitude:11,unit:'PT'},bold:true,foregroundColor:{color:{rgbColor:green}}});break;
    case 'caption':Object.assign(p,{spaceBelow:{magnitude:5,unit:'PT'},borderBottom:border(line)});Object.assign(t,{fontSize:{magnitude:7.5,unit:'PT'},foregroundColor:{color:{rgbColor:gray}}});break;
    case 'noteHeading':Object.assign(p,{spaceAbove:{magnitude:14,unit:'PT'},spaceBelow:{magnitude:5,unit:'PT'},keepWithNext:true});Object.assign(t,{fontSize:{magnitude:8,unit:'PT'},bold:true,foregroundColor:{color:{rgbColor:gold}}});break;
-   case 'note':Object.assign(p,{spaceBelow:{magnitude:3,unit:'PT'},keepWithNext:r!==rows[rows.length-1]});Object.assign(t,{fontSize:{magnitude:7.5,unit:'PT'},foregroundColor:{color:{rgbColor:gray}}});break;
+   case 'note':Object.assign(p,{spaceBelow:{magnitude:3,unit:'PT'},keepWithNext:!r.lastNote});Object.assign(t,{fontSize:{magnitude:7.5,unit:'PT'},foregroundColor:{color:{rgbColor:gray}}});break;
   }
   requests.push({updateParagraphStyle:{range,paragraphStyle:p,fields:Object.keys(p).join(',')}});
   if(Object.keys(t).length)requests.push({updateTextStyle:{range,textStyle:t,fields:Object.keys(t).join(',')}});
