@@ -221,11 +221,13 @@ async function findPatient(){
 
   const payload={
     action:'buscar_paciente',
+    origen:'admin',
+    pin:state.pin,
     busqueda:q
   };
 
   // Si parece teléfono, conservar también telefono para compatibilidad
-  if(digits.length>=10){
+  if(/^[+\d\s().-]+$/.test(q) && digits.length>=10){
     payload.telefono=digits.slice(-10);
     payload.busqueda=digits.slice(-10);
   }
@@ -234,6 +236,10 @@ async function findPatient(){
 
   try{
     const r=await core(payload);
+    if(r.error==='admin_no_autorizado'){
+      state.loading=false;state.authorized=false;state.pin='';render();
+      return toast('Vuelve a ingresar al administrador');
+    }
 
     state.loading=false;
     state.patient=null;
@@ -1391,7 +1397,7 @@ window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;installBa
 setTimeout(renderInstallBanner,900);
 
 render();
-if('serviceWorker' in navigator) navigator.serviceWorker.register('sw-admin.js?v=35');
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw-admin.js?v=36');
 </script>
 </body>
 </html>
