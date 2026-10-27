@@ -1,10 +1,10 @@
 function prepararCorreo(evento, result) {
- const p=result.encontrado===true ? (Array.isArray(result.pacientes)?result.pacientes:(result.paciente?[result.paciente]:[])).find(p=>String(p.id||p.person_id||p.patient_id||'')===String(evento.paciente_id)) : null;
+  const p=result.encontrado===true ? (Array.isArray(result.pacientes)?result.pacientes:(result.paciente?[result.paciente]:[])).find(p=>String(p.id||p.person_id||p.patient_id||'')===String(evento.paciente_id)) : null;
  const id=String(p?.id||p?.person_id||p?.patient_id||'');
  const liga=evento.tipo==='liga_solicitada';
  const transferencia=evento.tipo==='transferencia_elegida';
  const interno=liga||transferencia;
- const email=interno?'smedicahr@gmail.com':String(p?.email||'').trim().toLowerCase();
+ const email=liga?'smedicahrfacturacion@gmail.com':transferencia?'smedicahr@gmail.com':String(p?.email||'').trim().toLowerCase();
  if(id!==evento.paciente_id || !/^\S+@\S+\.\S+$/.test(email))throw new Error('Expediente y correo no coinciden');
  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const date=new Date(evento.starts_at);

@@ -533,9 +533,9 @@ function appointmentPaymentNotice(c){
   const estado=String(c.estado_pago||'');
   if(estado==='pagado')return '<div class="bg-[#edf3e6] rounded-2xl p-3 text-sm text-[#294317]">Pago confirmado por el consultorio.</div>';
   if(estado==='sin_pago')return '<div class="bg-stone-50 rounded-2xl p-3 text-sm text-stone-600">Esta cita no requiere pago anticipado.</div>';
-  if(estado==='pendiente_liga')return '<div class="bg-[#fffaf0] rounded-2xl p-3 text-sm text-stone-700">Tu liga de pago está pendiente de envío.</div>';
-  if(estado==='pendiente_transferencia')return '<div class="bg-[#fffaf0] rounded-2xl p-3 text-sm text-stone-700">Tu transferencia está pendiente de validación por el consultorio.</div>';
-  return '<div class="bg-stone-50 rounded-2xl p-3 text-sm text-stone-600">Elige transferencia bancaria o solicita una liga de pago desde Consultar pago.</div>';
+  if(estado==='pendiente_liga')return '<div class="bg-[#fffaf0] rounded-2xl p-3 text-sm text-stone-700">Pago pendiente. Tu liga de pago está pendiente de envío.</div>';
+  if(estado==='pendiente_transferencia')return '<div class="bg-[#fffaf0] rounded-2xl p-3 text-sm text-stone-700">Pago pendiente por transferencia. Si ya pagaste, envía tu comprobante al consultorio para validarlo.</div>';
+  return '<div class="bg-stone-50 rounded-2xl p-3 text-sm text-stone-600">Pago pendiente. Elige transferencia bancaria o solicita una liga desde Consultar pago. El consultorio confirmará tu espacio al validar el pago.</div>';
 }
 
 function appointmentId(c){
@@ -573,9 +573,41 @@ function canRebookByTime(c){
   return hoursUntilAppointment(c)>=48;
 }
 
+const rebookingStatusCache=new Map();
+function appointmentRebookingUsed(c){return c?.reagendacion_usada===true;}
+function rememberRebookingUsed(citaId,pacienteId=patientId()){
+ const id=String(citaId||'');
+ if(!id)return;
+ rebookingStatusCache.set(String(pacienteId)+':'+id,{used:true,checkedAt:Date.now()});
+ state.appointments=state.appointments.map(c=>appointmentId(c)===id?{...c,reagendacion_usada:true}:c);
+}
+async function hydrateRebookingStatuses(citas,pacienteId){
+ return Promise.all(citas.map(async c=>{
+  const id=appointmentId(c),key=String(pacienteId)+':'+id,cached=rebookingStatusCache.get(key);
+  if(!id||!c.starts_at)return c;
+  if(cached&&(cached.used||Date.now()-cached.checkedAt<30000))return {...c,reagendacion_usada:cached.used};
+  try{
+   // Read-only branch: omitting nueva_fecha/nueva_hora never moves or saves a booking.
+   const r=await api({action:'validar_reagendacion',cita_id:id,starts_at:String(c.starts_at),paciente_id:String(pacienteId)});
+   if(r?.ok===true&&String(r.cita_id)===id&&typeof r.reagendacion_usada==='boolean'){
+    rebookingStatusCache.set(key,{used:r.reagendacion_usada,checkedAt:Date.now()});
+    return {...c,reagendacion_usada:r.reagendacion_usada};
+   }
+  }catch(e){ /* A failed status check must not invent an available change. */ }
+  const {reagendacion_usada,...rest}=c;
+  return rest;
+ }));
+}
+function appointmentRebookingNotice(c){
+ if(appointmentRebookingUsed(c))return '<div class="bg-[#fffaf0] border border-[#ead9a8] rounded-2xl p-3 mt-4 text-sm text-stone-700" role="status"><b>Reagendación utilizada: 1 de 1</b><br>Esta cita ya se cambió una vez. Para otro ajuste, contacta al consultorio por WhatsApp.</div>';
+ if(c.reagendacion_usada===false)return '<div class="bg-stone-50 border rounded-2xl p-3 mt-4 text-sm text-stone-700"><b>Reagendaciones utilizadas: 0 de 1</b><br>Puedes cambiar esta cita una vez, con al menos 48 horas de anticipación.</div>';
+ return '<div class="bg-stone-50 border rounded-2xl p-3 mt-4 text-sm text-stone-700"><b>Reagendación de tu cita</b><br>Cada cita admite un cambio con al menos 48 horas de anticipación. No pudimos consultar si ya lo utilizaste; se verificará al solicitar el cambio.</div>';
+}
+
 async function startRebooking(id){
   const c=state.appointments.find(x=>appointmentId(x)===String(id));
   if(!c)return toast('No pude identificar la cita');
+  if(appointmentRebookingUsed(c))return toast('Esta cita ya utilizó su única reagendación. Contacta al consultorio.');
 
   if(!canRebookByTime(c)){
     toast('La ventana de 48 horas ya cerró');
@@ -673,6 +705,7 @@ async function confirmRebooking(){
   const c=state.rebooking;
   const x=state.slots[state.slot];
   if(!c || !x)return;
+  if(appointmentRebookingUsed(c))return toast('Esta cita ya utilizó su única reagendación. Contacta al consultorio.');
 
   if(!canRebookByTime(c)){
     toast('La ventana de 48 horas ya cerró');
@@ -699,6 +732,7 @@ async function confirmRebooking(){
     state.loading=false;
 
     if(r?.permitido===false || r?.motivo==='fuera_de_ventana_48h' || r?.motivo==='reagendacion_ya_utilizada'){
+      if(r?.reagendacion_usada===true||r?.motivo==='reagendacion_ya_utilizada')rememberRebookingUsed(appointmentId(c));
       const msg=r?.motivo==='reagendacion_ya_utilizada'
         ? 'Esta cita ya utilizó su única reagendación.'
         : 'La ventana de 48 horas para reagendar ya cerró.';
@@ -734,6 +768,11 @@ async function confirmRebooking(){
       : citas.some(item=>coinciden(item.starts_at))
         && !citas.some(item=>appointmentId(item)===appointmentId(c));
     state.appointments=citas;
+    if(reflejada){
+      rememberRebookingUsed(appointmentId(c));
+      if(nueva)rememberRebookingUsed(appointmentId(nueva));
+    }
+    state.appointments=await hydrateRebookingStatuses(state.appointments,patientId());
     state.appointmentsLoaded=true;
     state.view='appointments';
     state.rebooking=null;
@@ -785,6 +824,7 @@ async function loadAppointments(){
         }
       }catch(e){ /* La agenda sigue disponible si falla la consulta de pagos. */ }
     }
+    state.appointments=await hydrateRebookingStatuses(state.appointments,id);
     state.appointmentsLoaded=true;
     render();
   }catch(e){
@@ -836,16 +876,12 @@ function appointments(){
           <span class="text-xs bg-[#edf3e6] text-[#294317] px-3 py-1 rounded-full h-fit">Nimbo</span>
         </div>
 
-        <div class="bg-[#fffaf0] border border-[#ead9a8] rounded-2xl p-3 mt-4 text-sm text-stone-700">
-          <b>Importante sobre tu cita</b><br>
-          Puedes reagendarla una sola vez y con al menos 48 horas de anticipación.
-          Si necesitas hacer un ajuste fuera de ese periodo, contáctanos por WhatsApp.
-        </div>
+        ${appointmentRebookingNotice(c)}
 
         <div class="mt-3">${appointmentPaymentNotice(c)}</div>
 
         <div class="grid gap-2 mt-4">
-          ${canRebookByTime(c)?`
+          ${appointmentRebookingUsed(c)?'':canRebookByTime(c)?`
             <button onclick="startRebooking('${appointmentId(c)}')"
                     class="btn rounded-2xl py-3 text-center font-semibold">
               Reagendar cita
@@ -1460,8 +1496,8 @@ function paymentWhatsAppUrl(){
 function patientAlertBanner(){
   if(state.paymentStatus==='pendiente_transferencia'){
     return `<div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 mt-4 text-left">
-      <div class="font-semibold text-amber-900">Pago pendiente de validar</div>
-      <div class="text-sm text-amber-800 mt-1">Envía tu comprobante por WhatsApp para confirmar tu espacio.</div>
+      <div class="font-semibold text-amber-900">Transferencia: pago pendiente</div>
+      <div class="text-sm text-amber-800 mt-1">Realiza la transferencia y envía tu comprobante por WhatsApp para confirmar tu espacio.</div>
       <a href="${paymentWhatsAppUrl()}" target="_blank" rel="noopener" class="inline-block mt-3 border border-amber-300 rounded-xl px-4 py-2 text-sm font-semibold">Enviar comprobante por WhatsApp</a>
     </div>`;
   }
@@ -1515,7 +1551,7 @@ function paymentSection(){
 
   return `<div class="border border-[#e7e0cc] rounded-2xl p-4 mt-5 text-left">
     <div class="font-semibold text-lg">¿Cómo deseas continuar con el pago?</div>
-    <div class="text-sm text-stone-500 mt-1">Tu cita ya quedó registrada. Elige una opción.</div>
+    <div class="text-sm text-stone-500 mt-1">Tu cita está registrada y su pago sigue pendiente. Elige una opción.</div>
     <div class="grid sm:grid-cols-2 gap-3 mt-4">
       <button onclick="choosePayment('liga')" class="btn rounded-2xl py-3.5 font-semibold">Solicitar liga de pago</button>
       <button onclick="choosePayment('transferencia')" class="border border-[#d8c997] rounded-2xl py-3.5 font-semibold text-[#5f552d]">Transferencia bancaria</button>
@@ -1528,8 +1564,8 @@ function success(){
   const d=parseDateOnly(b.slot.fecha);
   return `<section class="card rounded-3xl p-7 text-center">
     <div class="success-ring">✓</div>
-    <h2 class="text-2xl font-semibold mt-4">¡Tu cita quedó agendada!</h2>
-    <p class="text-stone-500 mt-2">Ya quedó registrada en la agenda del Dr. Héctor.</p>
+    <h2 class="text-2xl font-semibold mt-4">Tu cita quedó registrada</h2>
+    <p class="text-stone-500 mt-2">El pago sigue pendiente. Completa el pago y comparte tu comprobante para que el consultorio confirme tu espacio.</p>
     <div class="bg-[#faf8f1] rounded-2xl p-4 mt-5 text-left">
       <div class="text-sm text-stone-500">Servicio</div>
       <div class="font-semibold">${b.service.name}</div>
@@ -1600,7 +1636,7 @@ window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;installBa
 setTimeout(renderInstallBanner,900);
 
 render();
-if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js?v=53');
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js?v=54');
 </script>
 </body>
 </html>

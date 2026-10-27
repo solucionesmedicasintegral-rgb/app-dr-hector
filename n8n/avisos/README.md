@@ -1,3 +1,7 @@
+# Cambio publicado el 27 de octubre de 2026
+
+Las solicitudes `liga_solicitada` se notifican a `smedicahrfacturacion@gmail.com`. La elección de transferencia conserva `smedicahr@gmail.com`. Se cambió únicamente la ruta de destinatario en el nodo Preparar correo del subflujo euohdVVLQiwNYJm6 y se publicó. No se cambió la credencial remitente ni se ejecutó un envío real de prueba. El aviso solicita al consultorio preparar y enviar la liga: no genera automáticamente una liga ni acredita un pago.
+
 # Avisos por correo del Dr. Héctor
 
 ## Solicitud de liga y elección de transferencia — 2 de octubre de 2026
