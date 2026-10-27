@@ -16,7 +16,7 @@
     },
     {
       "parameters": {
-        "jsCode": "function validarAviso(raw){\n if(!['cita_agendada','pago_confirmado','liga_solicitada','transferencia_elegida','recordatorio_cita'].includes(raw.tipo))throw new Error('Tipo no permitido');\n const paciente_id=String(raw.paciente_id||'');\n const cita_id=String(raw.cita_id||'');\n const telefono=String(raw.telefono||'').replace(/\\D/g,'').slice(-10);\n if(!/^\\d{1,15}$/.test(paciente_id)||!/^\\d{1,15}$/.test(cita_id)||!/^\\d{10}$/.test(telefono))throw new Error('Datos incompletos');\n if(typeof raw.starts_at!=='string'||!/^\\d{4}-\\d{2}-\\d{2}T.*(?:Z|[+-]\\d{2}:?\\d{2})$/.test(raw.starts_at)||!Number.isFinite(Date.parse(raw.starts_at)))throw new Error('Fecha inválida');\n const monto=Number(raw.monto||0);\n if(!Number.isFinite(monto)||monto<0)throw new Error('Monto inválido');\n if(raw.tipo==='pago_confirmado'&&(!Number.isFinite(monto)||monto<=0))throw new Error('Monto inválido');\n return {prueba:raw.prueba===true,tipo:raw.tipo,evento_id:`${raw.tipo}:${cita_id}${raw.tipo==='recordatorio_cita'?':'+raw.starts_at:''}`,paciente_id,cita_id,telefono,starts_at:raw.starts_at,modalidad:raw.modalidad==='virtual'?'virtual':'presencial',monto};\n}\n\nreturn [{json:validarAviso($input.first().json)}];"
+        "jsCode": "function validarAviso(raw){\n if(!['cita_agendada','pago_confirmado','liga_solicitada','transferencia_elegida','recordatorio_cita'].includes(raw.tipo))throw new Error('Tipo no permitido');\n const paciente_id=String(raw.paciente_id||'');\n const cita_id=String(raw.cita_id||'');\n const telefono=String(raw.telefono||'').replace(/\\D/g,'').slice(-10);\n if(!/^\\d{1,15}$/.test(paciente_id)||!/^\\d{1,15}$/.test(cita_id)||!/^\\d{10}$/.test(telefono))throw new Error('Datos incompletos');\n if(typeof raw.starts_at!=='string'||!/^\\d{4}-\\d{2}-\\d{2}T.*(?:Z|[+-]\\d{2}:?\\d{2})$/.test(raw.starts_at)||!Number.isFinite(Date.parse(raw.starts_at)))throw new Error('Fecha inválida');\n const monto=Number(raw.monto||0);\n if(!Number.isFinite(monto)||monto<0)throw new Error('Monto inválido');\n if(raw.tipo==='pago_confirmado'&&monto<=0)throw new Error('Monto inválido');\n return {prueba:raw.prueba===true,tipo:raw.tipo,evento_id:`${raw.tipo}:${cita_id}${raw.tipo==='recordatorio_cita'?':'+raw.starts_at:''}`,paciente_id,cita_id,telefono,starts_at:raw.starts_at,modalidad:raw.modalidad==='virtual'?'virtual':'presencial',monto};\n}\nreturn [{json:validarAviso($input.first().json)}];"
       },
       "id": "85641ce1-4bc7-44a1-9619-6a297f6538f3",
       "name": "Validar aviso",
@@ -225,7 +225,8 @@
       "position": [
         1552,
         0
-      ]
+      ],
+      "webhookId": "009e047a-7f7c-4438-beff-74cf597e3722"
     },
     {
       "parameters": {
@@ -284,8 +285,52 @@
         1984,
         0
       ]
+    },
+    {
+      "id": "a1a63b7a-9636-4df9-9236-c80cb53fa214",
+      "name": "Preparar cita app para Kommo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        -300
+      ],
+      "parameters": {
+        "jsCode": "const e=$('Validar aviso').first().json;\nif(e.tipo!=='cita_agendada')return [];\nconst r=$('Buscar expediente').first().json;\nconst candidates=Array.isArray(r.pacientes)?r.pacientes:(r.paciente?[r.paciente]:[]);\nconst p=r.encontrado===true?candidates.find(p=>String(p.id||p.person_id||p.patient_id||'')===String(e.paciente_id)):null;\nif(!p)throw new Error('El expediente de la cita no coincide');\nconst nombre=String(p.nombre||p.full_name||[p.first_name,p.middle_name,p.last_name,p.maternal_name].filter(Boolean).join(' ')).trim();\nreturn [{json:{tipo:e.tipo,cita_id:String(e.cita_id),paciente_id:String(e.paciente_id),telefono:String(e.telefono||''),paciente_nombre:nombre,paciente_email:String(p.email||''),starts_at:String(e.starts_at||'')}}];\n"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "bb761a8e-0afd-49a7-a2d0-2c67b5aa9f34",
+      "name": "Sincronizar cita app en Kommo",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1584,
+        -300
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "9wVU33pS2dcqovc6",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "passthrough",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "onError": "continueRegularOutput"
     }
   ],
+  "pinData": {},
   "connections": {
     "Recibir aviso interno": {
       "main": [
@@ -334,6 +379,11 @@
     "Buscar expediente": {
       "main": [
         [
+          {
+            "node": "Preparar cita app para Kommo",
+            "type": "main",
+            "index": 0
+          },
           {
             "node": "Preparar correo",
             "type": "main",
@@ -385,8 +435,20 @@
           }
         ]
       ]
+    },
+    "Preparar cita app para Kommo": {
+      "main": [
+        [
+          {
+            "node": "Sincronizar cita app en Kommo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
+  "active": false,
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
@@ -397,5 +459,12 @@
     "callerPolicy": "workflowsFromSameOwner",
     "availableInMCP": false
   },
-  "active": false
+  "versionId": "b8d8107d-7a0c-4434-975e-7ff80a2911ae",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "f84d102c3efeb2750af8af22f4b7800444da1a0d5d3fb95b5dd7b36a661676af"
+  },
+  "nodeGroups": [],
+  "id": "euohdVVLQiwNYJm6",
+  "tags": []
 }

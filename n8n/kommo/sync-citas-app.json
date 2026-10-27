@@ -1,0 +1,432 @@
+{
+  "name": "HECTOR - Citas app a Kommo - Confirmación",
+  "nodes": [
+    {
+      "id": "ae026e00-c5f2-411a-9efa-5b35f74c8d3f",
+      "name": "Recibir cita app",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "835ec8c3-12d8-4e5b-88f9-f46f103242a8",
+      "name": "Prueba sin escrituras",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        260
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "4189216e-68c8-4729-8b64-ec3ec5ae0f79",
+      "name": "Datos de prueba",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        260
+      ],
+      "parameters": {
+        "jsCode": "function unpack(r){for(let i=0;i<5;i++){if(typeof r==='string'){r=JSON.parse(r);continue;}if(r?._embedded)return r;if(r?.data!==undefined){r=r.data;continue;}if(r?.body!==undefined){r=r.body;continue;}break;}return r||{};}\nconst norm=s=>String(s||'').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();\nconst phone=s=>String(s||'').replace(/\\D/g,'').slice(-10);\nconst PIPELINE=8678943,CONFIRMACION=68204659,FECHA_FIELD=1989801;\nfunction validateEvent(e){\n if(e.tipo!=='cita_agendada')return null;\n const citaId=String(e.cita_id||''),pid=String(e.paciente_id||''),tel=phone(e.telefono),nombre=String(e.paciente_nombre||'').replace(/[\\r\\n\\t]/g,' ').trim().slice(0,140),starts=String(e.starts_at||'');\n if(!/^[1-9]\\d{0,19}$/.test(citaId)||!/^[1-9]\\d{0,19}$/.test(pid)||tel.length!==10||!nombre||!/^\\d{4}-\\d{2}-\\d{2}T.*(?:Z|[+-]\\d{2}:?\\d{2})$/.test(starts)||!Number.isFinite(Date.parse(starts)))throw Error('Datos de cita incompletos para Kommo');\n return {tipo:e.tipo,cita_id:citaId,paciente_id:pid,telefono:tel,paciente_nombre:nombre,email:/^\\S+@\\S+\\.\\S+$/.test(String(e.paciente_email||''))?String(e.paciente_email).trim().toLowerCase():'',starts_at:starts,marker:'[APPHC'+citaId+']',query:'APPHC'+citaId,dry_run:e.dry_run===true};\n}\nfunction chooseContact(job,response){\n const rows=unpack(response)?._embedded?.contacts||[];\n const exact=rows.filter(c=>(c.custom_fields_values||[]).some(f=>f.field_code==='PHONE'&&(f.values||[]).some(v=>phone(v.value)===job.telefono)));\n const names=exact.filter(c=>norm(c.name)===norm(job.paciente_nombre));\n const chosen=names.length===1?names[0]:exact.length===1?exact[0]:null;\n if(exact.length>1&&!chosen)throw Error('Varios contactos con el mismo teléfono: requiere vinculación manual');\n return {...job,contact_id:chosen?.id||null,contact_name:chosen?.name||'',contact_body:[{name:job.paciente_nombre,custom_fields_values:[{field_code:'PHONE',values:[{value:'+52'+job.telefono,enum_code:'MOB'}]},...(job.email?[{field_code:'EMAIL',values:[{value:job.email,enum_code:'WORK'}]}]:[])]}]};\n}\nfunction resolvedContact(job,response){\n const raw=unpack(response),c=raw?._embedded?.contacts?.[0]||raw;\n if(!Number.isInteger(c.id)||c.id<=0||(job.contact_id&&c.id!==job.contact_id))throw Error('Kommo no confirmó el contacto correcto');\n const leads=(c._embedded?.leads||[]).map(l=>Number(l.id)).filter(Number.isSafeInteger);\n if(leads.length>50)throw Error('Demasiados leads del contacto: requiere revisión manual');\n return {...job,contact_id:c.id,contact_name:c.name||job.contact_name,contact_lead_ids:leads};\n}\nfunction findAppointmentLead(job,response){\n const rows=unpack(response)?._embedded?.leads||[];\n const exact=rows.filter(l=>Number(l.pipeline_id)===PIPELINE&&String(l.name||'').includes(job.marker));\n if(exact.length>1)throw Error('Más de un lead para esta cita: requiere revisión manual');\n return {...job,app_lead:exact[0]||null};\n}\nfunction decideLead(job,response){\n const active=l=>Number(l.pipeline_id)===PIPELINE&&![142,143].includes(Number(l.status_id));\n let lead=job.app_lead;\n if(!lead&&norm(job.contact_name)===norm(job.paciente_nombre)){\n  const candidates=(unpack(response)?._embedded?.leads||[]).filter(l=>{\n   if(!active(l)||/\\[APPHC\\d+\\]/.test(String(l.name||'')))return false;\n   const booked=(l.custom_fields_values||[]).find(f=>Number(f.field_id)===FECHA_FIELD)?.values?.[0]?.value;\n   return !booked||Number(booked)*1000<Date.now()||Math.abs(Number(booked)*1000-Date.parse(job.starts_at))<60000;\n  });\n  if(candidates.length>1)throw Error('Varios leads activos de Héctor: requiere vinculación manual');\n  lead=candidates[0]||null;\n }\n const closed=lead&&[142,143].includes(Number(lead.status_id));\n const appExists=Boolean(job.app_lead);\n const existingName=String(lead?.name||job.paciente_nombre+' · Cita Dr. Héctor').replace(/[\\r\\n\\t]/g,' ').trim();\n const name=existingName.includes(job.marker)?existingName:existingName.slice(0,220-job.marker.length)+' '+job.marker;\n const body={...(lead?{id:Number(lead.id)}:{}),name,...(!appExists?{pipeline_id:PIPELINE,status_id:CONFIRMACION}:{}),custom_fields_values:[{field_id:FECHA_FIELD,values:[{value:Math.floor(Date.parse(job.starts_at)/1000)}]}],...(!lead?{_embedded:{contacts:[{id:job.contact_id,is_main:true}]}}:{})};\n return {...job,lead_id:lead?.id||null,noop:Boolean(closed),lead_body:[body]};\n}\nfunction result(job,response){const raw=unpack(response),lead=raw?._embedded?.leads?.[0]||raw;if(!Number.isInteger(lead.id)||lead.id<=0||(job.lead_id&&Number(job.lead_id)!==lead.id))throw Error('Kommo no confirmó el lead de la cita');return {ok:true,cita_id:job.cita_id,lead_id:lead.id,pipeline_id:PIPELINE,estado:job.noop?'cerrado_sin_cambios':job.lead_id?'actualizado':'creado',etapa:job.noop?null:job.app_lead?job.app_lead.status_id:CONFIRMACION,cancelacion_automatica:false};}\n\nreturn [{json:{tipo:'cita_agendada',cita_id:'999999999',paciente_id:'999999999',telefono:'5550000000',paciente_nombre:'PRUEBA INTERNA SIN PACIENTE REAL',starts_at:'2026-12-15T17:00:00-06:00',dry_run:true}}];"
+      }
+    },
+    {
+      "id": "ca8b0ba7-75b1-41e4-8031-b7a4deec1911",
+      "name": "Validar cita app",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "jsCode": "function unpack(r){for(let i=0;i<5;i++){if(typeof r==='string'){r=JSON.parse(r);continue;}if(r?._embedded)return r;if(r?.data!==undefined){r=r.data;continue;}if(r?.body!==undefined){r=r.body;continue;}break;}return r||{};}\nconst norm=s=>String(s||'').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();\nconst phone=s=>String(s||'').replace(/\\D/g,'').slice(-10);\nconst PIPELINE=8678943,CONFIRMACION=68204659,FECHA_FIELD=1989801;\nfunction validateEvent(e){\n if(e.tipo!=='cita_agendada')return null;\n const citaId=String(e.cita_id||''),pid=String(e.paciente_id||''),tel=phone(e.telefono),nombre=String(e.paciente_nombre||'').replace(/[\\r\\n\\t]/g,' ').trim().slice(0,140),starts=String(e.starts_at||'');\n if(!/^[1-9]\\d{0,19}$/.test(citaId)||!/^[1-9]\\d{0,19}$/.test(pid)||tel.length!==10||!nombre||!/^\\d{4}-\\d{2}-\\d{2}T.*(?:Z|[+-]\\d{2}:?\\d{2})$/.test(starts)||!Number.isFinite(Date.parse(starts)))throw Error('Datos de cita incompletos para Kommo');\n return {tipo:e.tipo,cita_id:citaId,paciente_id:pid,telefono:tel,paciente_nombre:nombre,email:/^\\S+@\\S+\\.\\S+$/.test(String(e.paciente_email||''))?String(e.paciente_email).trim().toLowerCase():'',starts_at:starts,marker:'[APPHC'+citaId+']',query:'APPHC'+citaId,dry_run:e.dry_run===true};\n}\nfunction chooseContact(job,response){\n const rows=unpack(response)?._embedded?.contacts||[];\n const exact=rows.filter(c=>(c.custom_fields_values||[]).some(f=>f.field_code==='PHONE'&&(f.values||[]).some(v=>phone(v.value)===job.telefono)));\n const names=exact.filter(c=>norm(c.name)===norm(job.paciente_nombre));\n const chosen=names.length===1?names[0]:exact.length===1?exact[0]:null;\n if(exact.length>1&&!chosen)throw Error('Varios contactos con el mismo teléfono: requiere vinculación manual');\n return {...job,contact_id:chosen?.id||null,contact_name:chosen?.name||'',contact_body:[{name:job.paciente_nombre,custom_fields_values:[{field_code:'PHONE',values:[{value:'+52'+job.telefono,enum_code:'MOB'}]},...(job.email?[{field_code:'EMAIL',values:[{value:job.email,enum_code:'WORK'}]}]:[])]}]};\n}\nfunction resolvedContact(job,response){\n const raw=unpack(response),c=raw?._embedded?.contacts?.[0]||raw;\n if(!Number.isInteger(c.id)||c.id<=0||(job.contact_id&&c.id!==job.contact_id))throw Error('Kommo no confirmó el contacto correcto');\n const leads=(c._embedded?.leads||[]).map(l=>Number(l.id)).filter(Number.isSafeInteger);\n if(leads.length>50)throw Error('Demasiados leads del contacto: requiere revisión manual');\n return {...job,contact_id:c.id,contact_name:c.name||job.contact_name,contact_lead_ids:leads};\n}\nfunction findAppointmentLead(job,response){\n const rows=unpack(response)?._embedded?.leads||[];\n const exact=rows.filter(l=>Number(l.pipeline_id)===PIPELINE&&String(l.name||'').includes(job.marker));\n if(exact.length>1)throw Error('Más de un lead para esta cita: requiere revisión manual');\n return {...job,app_lead:exact[0]||null};\n}\nfunction decideLead(job,response){\n const active=l=>Number(l.pipeline_id)===PIPELINE&&![142,143].includes(Number(l.status_id));\n let lead=job.app_lead;\n if(!lead&&norm(job.contact_name)===norm(job.paciente_nombre)){\n  const candidates=(unpack(response)?._embedded?.leads||[]).filter(l=>{\n   if(!active(l)||/\\[APPHC\\d+\\]/.test(String(l.name||'')))return false;\n   const booked=(l.custom_fields_values||[]).find(f=>Number(f.field_id)===FECHA_FIELD)?.values?.[0]?.value;\n   return !booked||Number(booked)*1000<Date.now()||Math.abs(Number(booked)*1000-Date.parse(job.starts_at))<60000;\n  });\n  if(candidates.length>1)throw Error('Varios leads activos de Héctor: requiere vinculación manual');\n  lead=candidates[0]||null;\n }\n const closed=lead&&[142,143].includes(Number(lead.status_id));\n const appExists=Boolean(job.app_lead);\n const existingName=String(lead?.name||job.paciente_nombre+' · Cita Dr. Héctor').replace(/[\\r\\n\\t]/g,' ').trim();\n const name=existingName.includes(job.marker)?existingName:existingName.slice(0,220-job.marker.length)+' '+job.marker;\n const body={...(lead?{id:Number(lead.id)}:{}),name,...(!appExists?{pipeline_id:PIPELINE,status_id:CONFIRMACION}:{}),custom_fields_values:[{field_id:FECHA_FIELD,values:[{value:Math.floor(Date.parse(job.starts_at)/1000)}]}],...(!lead?{_embedded:{contacts:[{id:job.contact_id,is_main:true}]}}:{})};\n return {...job,lead_id:lead?.id||null,noop:Boolean(closed),lead_body:[body]};\n}\nfunction result(job,response){const raw=unpack(response),lead=raw?._embedded?.leads?.[0]||raw;if(!Number.isInteger(lead.id)||lead.id<=0||(job.lead_id&&Number(job.lead_id)!==lead.id))throw Error('Kommo no confirmó el lead de la cita');return {ok:true,cita_id:job.cita_id,lead_id:lead.id,pipeline_id:PIPELINE,estado:job.noop?'cerrado_sin_cambios':job.lead_id?'actualizado':'creado',etapa:job.noop?null:job.app_lead?job.app_lead.status_id:CONFIRMACION,cancelacion_automatica:false};}\n\nconst job=validateEvent($input.first().json);return job?[{json:job}]:[];"
+      }
+    },
+    {
+      "id": "599ac62a-d6c8-4c24-a1a0-424acc6a85c9",
+      "name": "Buscar contacto",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        0
+      ],
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {},
+        "url": "={{ 'https://solucionesmedicasintegral.kommo.com/api/v4/contacts?query='+encodeURIComponent($json.telefono)+'&with=leads&limit=250' }}"
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "46ea7eeb-a914-4d4b-8302-61b482833fa6",
+      "name": "Elegir contacto",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        0
+      ],
+      "parameters": {
+        "jsCode": "function unpack(r){for(let i=0;i<5;i++){if(typeof r==='string'){r=JSON.parse(r);continue;}if(r?._embedded)return r;if(r?.data!==undefined){r=r.data;continue;}if(r?.body!==undefined){r=r.body;continue;}break;}return r||{};}\nconst norm=s=>String(s||'').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();\nconst phone=s=>String(s||'').replace(/\\D/g,'').slice(-10);\nconst PIPELINE=8678943,CONFIRMACION=68204659,FECHA_FIELD=1989801;\nfunction validateEvent(e){\n if(e.tipo!=='cita_agendada')return null;\n const citaId=String(e.cita_id||''),pid=String(e.paciente_id||''),tel=phone(e.telefono),nombre=String(e.paciente_nombre||'').replace(/[\\r\\n\\t]/g,' ').trim().slice(0,140),starts=String(e.starts_at||'');\n if(!/^[1-9]\\d{0,19}$/.test(citaId)||!/^[1-9]\\d{0,19}$/.test(pid)||tel.length!==10||!nombre||!/^\\d{4}-\\d{2}-\\d{2}T.*(?:Z|[+-]\\d{2}:?\\d{2})$/.test(starts)||!Number.isFinite(Date.parse(starts)))throw Error('Datos de cita incompletos para Kommo');\n return {tipo:e.tipo,cita_id:citaId,paciente_id:pid,telefono:tel,paciente_nombre:nombre,email:/^\\S+@\\S+\\.\\S+$/.test(String(e.paciente_email||''))?String(e.paciente_email).trim().toLowerCase():'',starts_at:starts,marker:'[APPHC'+citaId+']',query:'APPHC'+citaId,dry_run:e.dry_run===true};\n}\nfunction chooseContact(job,response){\n const rows=unpack(response)?._embedded?.contacts||[];\n const exact=rows.filter(c=>(c.custom_fields_values||[]).some(f=>f.field_code==='PHONE'&&(f.values||[]).some(v=>phone(v.value)===job.telefono)));\n const names=exact.filter(c=>norm(c.name)===norm(job.paciente_nombre));\n const chosen=names.length===1?names[0]:exact.length===1?exact[0]:null;\n if(exact.length>1&&!chosen)throw Error('Varios contactos con el mismo teléfono: requiere vinculación manual');\n return {...job,contact_id:chosen?.id||null,contact_name:chosen?.name||'',contact_body:[{name:job.paciente_nombre,custom_fields_values:[{field_code:'PHONE',values:[{value:'+52'+job.telefono,enum_code:'MOB'}]},...(job.email?[{field_code:'EMAIL',values:[{value:job.email,enum_code:'WORK'}]}]:[])]}]};\n}\nfunction resolvedContact(job,response){\n const raw=unpack(response),c=raw?._embedded?.contacts?.[0]||raw;\n if(!Number.isInteger(c.id)||c.id<=0||(job.contact_id&&c.id!==job.contact_id))throw Error('Kommo no confirmó el contacto correcto');\n const leads=(c._embedded?.leads||[]).map(l=>Number(l.id)).filter(Number.isSafeInteger);\n if(leads.length>50)throw Error('Demasiados leads del contacto: requiere revisión manual');\n return {...job,contact_id:c.id,contact_name:c.name||job.contact_name,contact_lead_ids:leads};\n}\nfunction findAppointmentLead(job,response){\n const rows=unpack(response)?._embedded?.leads||[];\n const exact=rows.filter(l=>Number(l.pipeline_id)===PIPELINE&&String(l.name||'').includes(job.marker));\n if(exact.length>1)throw Error('Más de un lead para esta cita: requiere revisión manual');\n return {...job,app_lead:exact[0]||null};\n}\nfunction decideLead(job,response){\n const active=l=>Number(l.pipeline_id)===PIPELINE&&![142,143].includes(Number(l.status_id));\n let lead=job.app_lead;\n if(!lead&&norm(job.contact_name)===norm(job.paciente_nombre)){\n  const candidates=(unpack(response)?._embedded?.leads||[]).filter(l=>{\n   if(!active(l)||/\\[APPHC\\d+\\]/.test(String(l.name||'')))return false;\n   const booked=(l.custom_fields_values||[]).find(f=>Number(f.field_id)===FECHA_FIELD)?.values?.[0]?.value;\n   return !booked||Number(booked)*1000<Date.now()||Math.abs(Number(booked)*1000-Date.parse(job.starts_at))<60000;\n  });\n  if(candidates.length>1)throw Error('Varios leads activos de Héctor: requiere vinculación manual');\n  lead=candidates[0]||null;\n }\n const closed=lead&&[142,143].includes(Number(lead.status_id));\n const appExists=Boolean(job.app_lead);\n const existingName=String(lead?.name||job.paciente_nombre+' · Cita Dr. Héctor').replace(/[\\r\\n\\t]/g,' ').trim();\n const name=existingName.includes(job.marker)?existingName:existingName.slice(0,220-job.marker.length)+' '+job.marker;\n const body={...(lead?{id:Number(lead.id)}:{}),name,...(!appExists?{pipeline_id:PIPELINE,status_id:CONFIRMACION}:{}),custom_fields_values:[{field_id:FECHA_FIELD,values:[{value:Math.floor(Date.parse(job.starts_at)/1000)}]}],...(!lead?{_embedded:{contacts:[{id:job.contact_id,is_main:true}]}}:{})};\n return {...job,lead_id:lead?.id||null,noop:Boolean(closed),lead_body:[body]};\n}\nfunction result(job,response){const raw=unpack(response),lead=raw?._embedded?.leads?.[0]||raw;if(!Number.isInteger(lead.id)||lead.id<=0||(job.lead_id&&Number(job.lead_id)!==lead.id))throw Error('Kommo no confirmó el lead de la cita');return {ok:true,cita_id:job.cita_id,lead_id:lead.id,pipeline_id:PIPELINE,estado:job.noop?'cerrado_sin_cambios':job.lead_id?'actualizado':'creado',etapa:job.noop?null:job.app_lead?job.app_lead.status_id:CONFIRMACION,cancelacion_automatica:false};}\n\nreturn [{json:chooseContact($('Validar cita app').first().json,$input.first().json)}];"
+      }
+    },
+    {
+      "id": "3a11bdab-c00d-4e25-8fd7-52ccbefdfe9e",
+      "name": "Solo lectura de prueba",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1200,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7a38fb32-54d4-422d-bac6-4a846eb78d57",
+              "leftValue": "={{ $json.dry_run === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "4466d0d3-1592-48fa-a79b-4dcc1a292186",
+      "name": "Resultado prueba",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        260
+      ],
+      "parameters": {
+        "jsCode": "function unpack(r){for(let i=0;i<5;i++){if(typeof r==='string'){r=JSON.parse(r);continue;}if(r?._embedded)return r;if(r?.data!==undefined){r=r.data;continue;}if(r?.body!==undefined){r=r.body;continue;}break;}return r||{};}\nconst norm=s=>String(s||'').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();\nconst phone=s=>String(s||'').replace(/\\D/g,'').slice(-10);\nconst PIPELINE=8678943,CONFIRMACION=68204659,FECHA_FIELD=1989801;\nfunction validateEvent(e){\n if(e.tipo!=='cita_agendada')return null;\n const citaId=String(e.cita_id||''),pid=String(e.paciente_id||''),tel=phone(e.telefono),nombre=String(e.paciente_nombre||'').replace(/[\\r\\n\\t]/g,' ').trim().slice(0,140),starts=String(e.starts_at||'');\n if(!/^[1-9]\\d{0,19}$/.test(citaId)||!/^[1-9]\\d{0,19}$/.test(pid)||tel.length!==10||!nombre||!/^\\d{4}-\\d{2}-\\d{2}T.*(?:Z|[+-]\\d{2}:?\\d{2})$/.test(starts)||!Number.isFinite(Date.parse(starts)))throw Error('Datos de cita incompletos para Kommo');\n return {tipo:e.tipo,cita_id:citaId,paciente_id:pid,telefono:tel,paciente_nombre:nombre,email:/^\\S+@\\S+\\.\\S+$/.test(String(e.paciente_email||''))?String(e.paciente_email).trim().toLowerCase():'',starts_at:starts,marker:'[APPHC'+citaId+']',query:'APPHC'+citaId,dry_run:e.dry_run===true};\n}\nfunction chooseContact(job,response){\n const rows=unpack(response)?._embedded?.contacts||[];\n const exact=rows.filter(c=>(c.custom_fields_values||[]).some(f=>f.field_code==='PHONE'&&(f.values||[]).some(v=>phone(v.value)===job.telefono)));\n const names=exact.filter(c=>norm(c.name)===norm(job.paciente_nombre));\n const chosen=names.length===1?names[0]:exact.length===1?exact[0]:null;\n if(exact.length>1&&!chosen)throw Error('Varios contactos con el mismo teléfono: requiere vinculación manual');\n return {...job,contact_id:chosen?.id||null,contact_name:chosen?.name||'',contact_body:[{name:job.paciente_nombre,custom_fields_values:[{field_code:'PHONE',values:[{value:'+52'+job.telefono,enum_code:'MOB'}]},...(job.email?[{field_code:'EMAIL',values:[{value:job.email,enum_code:'WORK'}]}]:[])]}]};\n}\nfunction resolvedContact(job,response){\n const raw=unpack(response),c=raw?._embedded?.contacts?.[0]||raw;\n if(!Number.isInteger(c.id)||c.id<=0||(job.contact_id&&c.id!==job.contact_id))throw Error('Kommo no confirmó el contacto correcto');\n const leads=(c._embedded?.leads||[]).map(l=>Number(l.id)).filter(Number.isSafeInteger);\n if(leads.length>50)throw Error('Demasiados leads del contacto: requiere revisión manual');\n return {...job,contact_id:c.id,contact_name:c.name||job.contact_name,contact_lead_ids:leads};\n}\nfunction findAppointmentLead(job,response){\n const rows=unpack(response)?._embedded?.leads||[];\n const exact=rows.filter(l=>Number(l.pipeline_id)===PIPELINE&&String(l.name||'').includes(job.marker));\n if(exact.length>1)throw Error('Más de un lead para esta cita: requiere revisión manual');\n return {...job,app_lead:exact[0]||null};\n}\nfunction decideLead(job,response){\n const active=l=>Number(l.pipeline_id)===PIPELINE&&![142,143].includes(Number(l.status_id));\n let lead=job.app_lead;\n if(!lead&&norm(job.contact_name)===norm(job.paciente_nombre)){\n  const candidates=(unpack(response)?._embedded?.leads||[]).filter(l=>{\n   if(!active(l)||/\\[APPHC\\d+\\]/.test(String(l.name||'')))return false;\n   const booked=(l.custom_fields_values||[]).find(f=>Number(f.field_id)===FECHA_FIELD)?.values?.[0]?.value;\n   return !booked||Number(booked)*1000<Date.now()||Math.abs(Number(booked)*1000-Date.parse(job.starts_at))<60000;\n  });\n  if(candidates.length>1)throw Error('Varios leads activos de Héctor: requiere vinculación manual');\n  lead=candidates[0]||null;\n }\n const closed=lead&&[142,143].includes(Number(lead.status_id));\n const appExists=Boolean(job.app_lead);\n const existingName=String(lead?.name||job.paciente_nombre+' · Cita Dr. Héctor').replace(/[\\r\\n\\t]/g,' ').trim();\n const name=existingName.includes(job.marker)?existingName:existingName.slice(0,220-job.marker.length)+' '+job.marker;\n const body={...(lead?{id:Number(lead.id)}:{}),name,...(!appExists?{pipeline_id:PIPELINE,status_id:CONFIRMACION}:{}),custom_fields_values:[{field_id:FECHA_FIELD,values:[{value:Math.floor(Date.parse(job.starts_at)/1000)}]}],...(!lead?{_embedded:{contacts:[{id:job.contact_id,is_main:true}]}}:{})};\n return {...job,lead_id:lead?.id||null,noop:Boolean(closed),lead_body:[body]};\n}\nfunction result(job,response){const raw=unpack(response),lead=raw?._embedded?.leads?.[0]||raw;if(!Number.isInteger(lead.id)||lead.id<=0||(job.lead_id&&Number(job.lead_id)!==lead.id))throw Error('Kommo no confirmó el lead de la cita');return {ok:true,cita_id:job.cita_id,lead_id:lead.id,pipeline_id:PIPELINE,estado:job.noop?'cerrado_sin_cambios':job.lead_id?'actualizado':'creado',etapa:job.noop?null:job.app_lead?job.app_lead.status_id:CONFIRMACION,cancelacion_automatica:false};}\n\nconst j=$input.first().json;return [{json:{ok:true,dry_run:true,escrituras_kommo:0,envios_bot:0,pipeline_id:PIPELINE,status_id:CONFIRMACION,contacto_existente:Boolean(j.contact_id),accion:j.contact_id?'evaluar_lead_existente':'crear_contacto_y_lead',cancelacion_automatica:false}}];"
+      }
+    },
+    {
+      "id": "9011f289-b0f3-4071-9f36-d9d2831a6b30",
+      "name": "Resolver contacto",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        0
+      ],
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {},
+        "method": "={{ $json.contact_id ? 'GET' : 'POST' }}",
+        "url": "={{ 'https://solucionesmedicasintegral.kommo.com/api/v4/contacts'+($json.contact_id?'/'+$json.contact_id+'?with=leads':'') }}",
+        "sendBody": "={{ !$json.contact_id }}",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.contact_body) }}"
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "8a9b406a-0a45-4e23-87b3-b38b0fae0da4",
+      "name": "Contacto confirmado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        0
+      ],
+      "parameters": {
+        "jsCode": "function unpack(r){for(let i=0;i<5;i++){if(typeof r==='string'){r=JSON.parse(r);continue;}if(r?._embedded)return r;if(r?.data!==undefined){r=r.data;continue;}if(r?.body!==undefined){r=r.body;continue;}break;}return r||{};}\nconst norm=s=>String(s||'').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();\nconst phone=s=>String(s||'').replace(/\\D/g,'').slice(-10);\nconst PIPELINE=8678943,CONFIRMACION=68204659,FECHA_FIELD=1989801;\nfunction validateEvent(e){\n if(e.tipo!=='cita_agendada')return null;\n const citaId=String(e.cita_id||''),pid=String(e.paciente_id||''),tel=phone(e.telefono),nombre=String(e.paciente_nombre||'').replace(/[\\r\\n\\t]/g,' ').trim().slice(0,140),starts=String(e.starts_at||'');\n if(!/^[1-9]\\d{0,19}$/.test(citaId)||!/^[1-9]\\d{0,19}$/.test(pid)||tel.length!==10||!nombre||!/^\\d{4}-\\d{2}-\\d{2}T.*(?:Z|[+-]\\d{2}:?\\d{2})$/.test(starts)||!Number.isFinite(Date.parse(starts)))throw Error('Datos de cita incompletos para Kommo');\n return {tipo:e.tipo,cita_id:citaId,paciente_id:pid,telefono:tel,paciente_nombre:nombre,email:/^\\S+@\\S+\\.\\S+$/.test(String(e.paciente_email||''))?String(e.paciente_email).trim().toLowerCase():'',starts_at:starts,marker:'[APPHC'+citaId+']',query:'APPHC'+citaId,dry_run:e.dry_run===true};\n}\nfunction chooseContact(job,response){\n const rows=unpack(response)?._embedded?.contacts||[];\n const exact=rows.filter(c=>(c.custom_fields_values||[]).some(f=>f.field_code==='PHONE'&&(f.values||[]).some(v=>phone(v.value)===job.telefono)));\n const names=exact.filter(c=>norm(c.name)===norm(job.paciente_nombre));\n const chosen=names.length===1?names[0]:exact.length===1?exact[0]:null;\n if(exact.length>1&&!chosen)throw Error('Varios contactos con el mismo teléfono: requiere vinculación manual');\n return {...job,contact_id:chosen?.id||null,contact_name:chosen?.name||'',contact_body:[{name:job.paciente_nombre,custom_fields_values:[{field_code:'PHONE',values:[{value:'+52'+job.telefono,enum_code:'MOB'}]},...(job.email?[{field_code:'EMAIL',values:[{value:job.email,enum_code:'WORK'}]}]:[])]}]};\n}\nfunction resolvedContact(job,response){\n const raw=unpack(response),c=raw?._embedded?.contacts?.[0]||raw;\n if(!Number.isInteger(c.id)||c.id<=0||(job.contact_id&&c.id!==job.contact_id))throw Error('Kommo no confirmó el contacto correcto');\n const leads=(c._embedded?.leads||[]).map(l=>Number(l.id)).filter(Number.isSafeInteger);\n if(leads.length>50)throw Error('Demasiados leads del contacto: requiere revisión manual');\n return {...job,contact_id:c.id,contact_name:c.name||job.contact_name,contact_lead_ids:leads};\n}\nfunction findAppointmentLead(job,response){\n const rows=unpack(response)?._embedded?.leads||[];\n const exact=rows.filter(l=>Number(l.pipeline_id)===PIPELINE&&String(l.name||'').includes(job.marker));\n if(exact.length>1)throw Error('Más de un lead para esta cita: requiere revisión manual');\n return {...job,app_lead:exact[0]||null};\n}\nfunction decideLead(job,response){\n const active=l=>Number(l.pipeline_id)===PIPELINE&&![142,143].includes(Number(l.status_id));\n let lead=job.app_lead;\n if(!lead&&norm(job.contact_name)===norm(job.paciente_nombre)){\n  const candidates=(unpack(response)?._embedded?.leads||[]).filter(l=>{\n   if(!active(l)||/\\[APPHC\\d+\\]/.test(String(l.name||'')))return false;\n   const booked=(l.custom_fields_values||[]).find(f=>Number(f.field_id)===FECHA_FIELD)?.values?.[0]?.value;\n   return !booked||Number(booked)*1000<Date.now()||Math.abs(Number(booked)*1000-Date.parse(job.starts_at))<60000;\n  });\n  if(candidates.length>1)throw Error('Varios leads activos de Héctor: requiere vinculación manual');\n  lead=candidates[0]||null;\n }\n const closed=lead&&[142,143].includes(Number(lead.status_id));\n const appExists=Boolean(job.app_lead);\n const existingName=String(lead?.name||job.paciente_nombre+' · Cita Dr. Héctor').replace(/[\\r\\n\\t]/g,' ').trim();\n const name=existingName.includes(job.marker)?existingName:existingName.slice(0,220-job.marker.length)+' '+job.marker;\n const body={...(lead?{id:Number(lead.id)}:{}),name,...(!appExists?{pipeline_id:PIPELINE,status_id:CONFIRMACION}:{}),custom_fields_values:[{field_id:FECHA_FIELD,values:[{value:Math.floor(Date.parse(job.starts_at)/1000)}]}],...(!lead?{_embedded:{contacts:[{id:job.contact_id,is_main:true}]}}:{})};\n return {...job,lead_id:lead?.id||null,noop:Boolean(closed),lead_body:[body]};\n}\nfunction result(job,response){const raw=unpack(response),lead=raw?._embedded?.leads?.[0]||raw;if(!Number.isInteger(lead.id)||lead.id<=0||(job.lead_id&&Number(job.lead_id)!==lead.id))throw Error('Kommo no confirmó el lead de la cita');return {ok:true,cita_id:job.cita_id,lead_id:lead.id,pipeline_id:PIPELINE,estado:job.noop?'cerrado_sin_cambios':job.lead_id?'actualizado':'creado',etapa:job.noop?null:job.app_lead?job.app_lead.status_id:CONFIRMACION,cancelacion_automatica:false};}\n\nreturn [{json:resolvedContact($('Elegir contacto').first().json,$input.first().json)}];"
+      }
+    },
+    {
+      "id": "a58e8d9d-9634-47d0-b95f-044da6226f00",
+      "name": "Buscar cita en Kommo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        0
+      ],
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {},
+        "url": "={{ 'https://solucionesmedicasintegral.kommo.com/api/v4/leads?query='+encodeURIComponent($json.query)+'&with=contacts&limit=250' }}"
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "cc05f323-7f1e-40be-b05c-c0b6cf238c7c",
+      "name": "Evaluar vínculo de cita",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        0
+      ],
+      "parameters": {
+        "jsCode": "function unpack(r){for(let i=0;i<5;i++){if(typeof r==='string'){r=JSON.parse(r);continue;}if(r?._embedded)return r;if(r?.data!==undefined){r=r.data;continue;}if(r?.body!==undefined){r=r.body;continue;}break;}return r||{};}\nconst norm=s=>String(s||'').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();\nconst phone=s=>String(s||'').replace(/\\D/g,'').slice(-10);\nconst PIPELINE=8678943,CONFIRMACION=68204659,FECHA_FIELD=1989801;\nfunction validateEvent(e){\n if(e.tipo!=='cita_agendada')return null;\n const citaId=String(e.cita_id||''),pid=String(e.paciente_id||''),tel=phone(e.telefono),nombre=String(e.paciente_nombre||'').replace(/[\\r\\n\\t]/g,' ').trim().slice(0,140),starts=String(e.starts_at||'');\n if(!/^[1-9]\\d{0,19}$/.test(citaId)||!/^[1-9]\\d{0,19}$/.test(pid)||tel.length!==10||!nombre||!/^\\d{4}-\\d{2}-\\d{2}T.*(?:Z|[+-]\\d{2}:?\\d{2})$/.test(starts)||!Number.isFinite(Date.parse(starts)))throw Error('Datos de cita incompletos para Kommo');\n return {tipo:e.tipo,cita_id:citaId,paciente_id:pid,telefono:tel,paciente_nombre:nombre,email:/^\\S+@\\S+\\.\\S+$/.test(String(e.paciente_email||''))?String(e.paciente_email).trim().toLowerCase():'',starts_at:starts,marker:'[APPHC'+citaId+']',query:'APPHC'+citaId,dry_run:e.dry_run===true};\n}\nfunction chooseContact(job,response){\n const rows=unpack(response)?._embedded?.contacts||[];\n const exact=rows.filter(c=>(c.custom_fields_values||[]).some(f=>f.field_code==='PHONE'&&(f.values||[]).some(v=>phone(v.value)===job.telefono)));\n const names=exact.filter(c=>norm(c.name)===norm(job.paciente_nombre));\n const chosen=names.length===1?names[0]:exact.length===1?exact[0]:null;\n if(exact.length>1&&!chosen)throw Error('Varios contactos con el mismo teléfono: requiere vinculación manual');\n return {...job,contact_id:chosen?.id||null,contact_name:chosen?.name||'',contact_body:[{name:job.paciente_nombre,custom_fields_values:[{field_code:'PHONE',values:[{value:'+52'+job.telefono,enum_code:'MOB'}]},...(job.email?[{field_code:'EMAIL',values:[{value:job.email,enum_code:'WORK'}]}]:[])]}]};\n}\nfunction resolvedContact(job,response){\n const raw=unpack(response),c=raw?._embedded?.contacts?.[0]||raw;\n if(!Number.isInteger(c.id)||c.id<=0||(job.contact_id&&c.id!==job.contact_id))throw Error('Kommo no confirmó el contacto correcto');\n const leads=(c._embedded?.leads||[]).map(l=>Number(l.id)).filter(Number.isSafeInteger);\n if(leads.length>50)throw Error('Demasiados leads del contacto: requiere revisión manual');\n return {...job,contact_id:c.id,contact_name:c.name||job.contact_name,contact_lead_ids:leads};\n}\nfunction findAppointmentLead(job,response){\n const rows=unpack(response)?._embedded?.leads||[];\n const exact=rows.filter(l=>Number(l.pipeline_id)===PIPELINE&&String(l.name||'').includes(job.marker));\n if(exact.length>1)throw Error('Más de un lead para esta cita: requiere revisión manual');\n return {...job,app_lead:exact[0]||null};\n}\nfunction decideLead(job,response){\n const active=l=>Number(l.pipeline_id)===PIPELINE&&![142,143].includes(Number(l.status_id));\n let lead=job.app_lead;\n if(!lead&&norm(job.contact_name)===norm(job.paciente_nombre)){\n  const candidates=(unpack(response)?._embedded?.leads||[]).filter(l=>{\n   if(!active(l)||/\\[APPHC\\d+\\]/.test(String(l.name||'')))return false;\n   const booked=(l.custom_fields_values||[]).find(f=>Number(f.field_id)===FECHA_FIELD)?.values?.[0]?.value;\n   return !booked||Number(booked)*1000<Date.now()||Math.abs(Number(booked)*1000-Date.parse(job.starts_at))<60000;\n  });\n  if(candidates.length>1)throw Error('Varios leads activos de Héctor: requiere vinculación manual');\n  lead=candidates[0]||null;\n }\n const closed=lead&&[142,143].includes(Number(lead.status_id));\n const appExists=Boolean(job.app_lead);\n const existingName=String(lead?.name||job.paciente_nombre+' · Cita Dr. Héctor').replace(/[\\r\\n\\t]/g,' ').trim();\n const name=existingName.includes(job.marker)?existingName:existingName.slice(0,220-job.marker.length)+' '+job.marker;\n const body={...(lead?{id:Number(lead.id)}:{}),name,...(!appExists?{pipeline_id:PIPELINE,status_id:CONFIRMACION}:{}),custom_fields_values:[{field_id:FECHA_FIELD,values:[{value:Math.floor(Date.parse(job.starts_at)/1000)}]}],...(!lead?{_embedded:{contacts:[{id:job.contact_id,is_main:true}]}}:{})};\n return {...job,lead_id:lead?.id||null,noop:Boolean(closed),lead_body:[body]};\n}\nfunction result(job,response){const raw=unpack(response),lead=raw?._embedded?.leads?.[0]||raw;if(!Number.isInteger(lead.id)||lead.id<=0||(job.lead_id&&Number(job.lead_id)!==lead.id))throw Error('Kommo no confirmó el lead de la cita');return {ok:true,cita_id:job.cita_id,lead_id:lead.id,pipeline_id:PIPELINE,estado:job.noop?'cerrado_sin_cambios':job.lead_id?'actualizado':'creado',etapa:job.noop?null:job.app_lead?job.app_lead.status_id:CONFIRMACION,cancelacion_automatica:false};}\n\nreturn [{json:findAppointmentLead($('Contacto confirmado').first().json,$input.first().json)}];"
+      }
+    },
+    {
+      "id": "bd6b2e1a-0f86-4df0-82cf-ec41e5b2af74",
+      "name": "Leer leads del contacto",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2400,
+        0
+      ],
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {},
+        "url": "={{ 'https://solucionesmedicasintegral.kommo.com/api/v4/leads?with=contacts&limit=250&'+($json.app_lead ? 'filter[id][0]='+$json.app_lead.id : ($json.contact_lead_ids.length ? $json.contact_lead_ids.map((id,i)=>'filter[id]['+i+']='+id).join('&') : 'query='+encodeURIComponent($json.query))) }}"
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "fedda9e0-0909-4c1a-a765-2c481999f16d",
+      "name": "Preparar lead de cita",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        0
+      ],
+      "parameters": {
+        "jsCode": "function unpack(r){for(let i=0;i<5;i++){if(typeof r==='string'){r=JSON.parse(r);continue;}if(r?._embedded)return r;if(r?.data!==undefined){r=r.data;continue;}if(r?.body!==undefined){r=r.body;continue;}break;}return r||{};}\nconst norm=s=>String(s||'').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();\nconst phone=s=>String(s||'').replace(/\\D/g,'').slice(-10);\nconst PIPELINE=8678943,CONFIRMACION=68204659,FECHA_FIELD=1989801;\nfunction validateEvent(e){\n if(e.tipo!=='cita_agendada')return null;\n const citaId=String(e.cita_id||''),pid=String(e.paciente_id||''),tel=phone(e.telefono),nombre=String(e.paciente_nombre||'').replace(/[\\r\\n\\t]/g,' ').trim().slice(0,140),starts=String(e.starts_at||'');\n if(!/^[1-9]\\d{0,19}$/.test(citaId)||!/^[1-9]\\d{0,19}$/.test(pid)||tel.length!==10||!nombre||!/^\\d{4}-\\d{2}-\\d{2}T.*(?:Z|[+-]\\d{2}:?\\d{2})$/.test(starts)||!Number.isFinite(Date.parse(starts)))throw Error('Datos de cita incompletos para Kommo');\n return {tipo:e.tipo,cita_id:citaId,paciente_id:pid,telefono:tel,paciente_nombre:nombre,email:/^\\S+@\\S+\\.\\S+$/.test(String(e.paciente_email||''))?String(e.paciente_email).trim().toLowerCase():'',starts_at:starts,marker:'[APPHC'+citaId+']',query:'APPHC'+citaId,dry_run:e.dry_run===true};\n}\nfunction chooseContact(job,response){\n const rows=unpack(response)?._embedded?.contacts||[];\n const exact=rows.filter(c=>(c.custom_fields_values||[]).some(f=>f.field_code==='PHONE'&&(f.values||[]).some(v=>phone(v.value)===job.telefono)));\n const names=exact.filter(c=>norm(c.name)===norm(job.paciente_nombre));\n const chosen=names.length===1?names[0]:exact.length===1?exact[0]:null;\n if(exact.length>1&&!chosen)throw Error('Varios contactos con el mismo teléfono: requiere vinculación manual');\n return {...job,contact_id:chosen?.id||null,contact_name:chosen?.name||'',contact_body:[{name:job.paciente_nombre,custom_fields_values:[{field_code:'PHONE',values:[{value:'+52'+job.telefono,enum_code:'MOB'}]},...(job.email?[{field_code:'EMAIL',values:[{value:job.email,enum_code:'WORK'}]}]:[])]}]};\n}\nfunction resolvedContact(job,response){\n const raw=unpack(response),c=raw?._embedded?.contacts?.[0]||raw;\n if(!Number.isInteger(c.id)||c.id<=0||(job.contact_id&&c.id!==job.contact_id))throw Error('Kommo no confirmó el contacto correcto');\n const leads=(c._embedded?.leads||[]).map(l=>Number(l.id)).filter(Number.isSafeInteger);\n if(leads.length>50)throw Error('Demasiados leads del contacto: requiere revisión manual');\n return {...job,contact_id:c.id,contact_name:c.name||job.contact_name,contact_lead_ids:leads};\n}\nfunction findAppointmentLead(job,response){\n const rows=unpack(response)?._embedded?.leads||[];\n const exact=rows.filter(l=>Number(l.pipeline_id)===PIPELINE&&String(l.name||'').includes(job.marker));\n if(exact.length>1)throw Error('Más de un lead para esta cita: requiere revisión manual');\n return {...job,app_lead:exact[0]||null};\n}\nfunction decideLead(job,response){\n const active=l=>Number(l.pipeline_id)===PIPELINE&&![142,143].includes(Number(l.status_id));\n let lead=job.app_lead;\n if(!lead&&norm(job.contact_name)===norm(job.paciente_nombre)){\n  const candidates=(unpack(response)?._embedded?.leads||[]).filter(l=>{\n   if(!active(l)||/\\[APPHC\\d+\\]/.test(String(l.name||'')))return false;\n   const booked=(l.custom_fields_values||[]).find(f=>Number(f.field_id)===FECHA_FIELD)?.values?.[0]?.value;\n   return !booked||Number(booked)*1000<Date.now()||Math.abs(Number(booked)*1000-Date.parse(job.starts_at))<60000;\n  });\n  if(candidates.length>1)throw Error('Varios leads activos de Héctor: requiere vinculación manual');\n  lead=candidates[0]||null;\n }\n const closed=lead&&[142,143].includes(Number(lead.status_id));\n const appExists=Boolean(job.app_lead);\n const existingName=String(lead?.name||job.paciente_nombre+' · Cita Dr. Héctor').replace(/[\\r\\n\\t]/g,' ').trim();\n const name=existingName.includes(job.marker)?existingName:existingName.slice(0,220-job.marker.length)+' '+job.marker;\n const body={...(lead?{id:Number(lead.id)}:{}),name,...(!appExists?{pipeline_id:PIPELINE,status_id:CONFIRMACION}:{}),custom_fields_values:[{field_id:FECHA_FIELD,values:[{value:Math.floor(Date.parse(job.starts_at)/1000)}]}],...(!lead?{_embedded:{contacts:[{id:job.contact_id,is_main:true}]}}:{})};\n return {...job,lead_id:lead?.id||null,noop:Boolean(closed),lead_body:[body]};\n}\nfunction result(job,response){const raw=unpack(response),lead=raw?._embedded?.leads?.[0]||raw;if(!Number.isInteger(lead.id)||lead.id<=0||(job.lead_id&&Number(job.lead_id)!==lead.id))throw Error('Kommo no confirmó el lead de la cita');return {ok:true,cita_id:job.cita_id,lead_id:lead.id,pipeline_id:PIPELINE,estado:job.noop?'cerrado_sin_cambios':job.lead_id?'actualizado':'creado',etapa:job.noop?null:job.app_lead?job.app_lead.status_id:CONFIRMACION,cancelacion_automatica:false};}\n\nreturn [{json:decideLead($('Evaluar vínculo de cita').first().json,$input.first().json)}];"
+      }
+    },
+    {
+      "id": "5580dd27-ca97-4179-b8d7-9a7c10c4cedd",
+      "name": "Guardar lead de cita",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2880,
+        0
+      ],
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {},
+        "method": "={{ $json.noop ? 'GET' : ($json.lead_id?'PATCH':'POST') }}",
+        "url": "={{ 'https://solucionesmedicasintegral.kommo.com/api/v4/leads'+($json.noop?'/'+$json.lead_id:'') }}",
+        "sendBody": "={{ !$json.noop }}",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.lead_body) }}"
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "e21594e8-5d2e-4306-9918-cf36b97cf72a",
+      "name": "Resultado Kommo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        0
+      ],
+      "parameters": {
+        "jsCode": "function unpack(r){for(let i=0;i<5;i++){if(typeof r==='string'){r=JSON.parse(r);continue;}if(r?._embedded)return r;if(r?.data!==undefined){r=r.data;continue;}if(r?.body!==undefined){r=r.body;continue;}break;}return r||{};}\nconst norm=s=>String(s||'').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();\nconst phone=s=>String(s||'').replace(/\\D/g,'').slice(-10);\nconst PIPELINE=8678943,CONFIRMACION=68204659,FECHA_FIELD=1989801;\nfunction validateEvent(e){\n if(e.tipo!=='cita_agendada')return null;\n const citaId=String(e.cita_id||''),pid=String(e.paciente_id||''),tel=phone(e.telefono),nombre=String(e.paciente_nombre||'').replace(/[\\r\\n\\t]/g,' ').trim().slice(0,140),starts=String(e.starts_at||'');\n if(!/^[1-9]\\d{0,19}$/.test(citaId)||!/^[1-9]\\d{0,19}$/.test(pid)||tel.length!==10||!nombre||!/^\\d{4}-\\d{2}-\\d{2}T.*(?:Z|[+-]\\d{2}:?\\d{2})$/.test(starts)||!Number.isFinite(Date.parse(starts)))throw Error('Datos de cita incompletos para Kommo');\n return {tipo:e.tipo,cita_id:citaId,paciente_id:pid,telefono:tel,paciente_nombre:nombre,email:/^\\S+@\\S+\\.\\S+$/.test(String(e.paciente_email||''))?String(e.paciente_email).trim().toLowerCase():'',starts_at:starts,marker:'[APPHC'+citaId+']',query:'APPHC'+citaId,dry_run:e.dry_run===true};\n}\nfunction chooseContact(job,response){\n const rows=unpack(response)?._embedded?.contacts||[];\n const exact=rows.filter(c=>(c.custom_fields_values||[]).some(f=>f.field_code==='PHONE'&&(f.values||[]).some(v=>phone(v.value)===job.telefono)));\n const names=exact.filter(c=>norm(c.name)===norm(job.paciente_nombre));\n const chosen=names.length===1?names[0]:exact.length===1?exact[0]:null;\n if(exact.length>1&&!chosen)throw Error('Varios contactos con el mismo teléfono: requiere vinculación manual');\n return {...job,contact_id:chosen?.id||null,contact_name:chosen?.name||'',contact_body:[{name:job.paciente_nombre,custom_fields_values:[{field_code:'PHONE',values:[{value:'+52'+job.telefono,enum_code:'MOB'}]},...(job.email?[{field_code:'EMAIL',values:[{value:job.email,enum_code:'WORK'}]}]:[])]}]};\n}\nfunction resolvedContact(job,response){\n const raw=unpack(response),c=raw?._embedded?.contacts?.[0]||raw;\n if(!Number.isInteger(c.id)||c.id<=0||(job.contact_id&&c.id!==job.contact_id))throw Error('Kommo no confirmó el contacto correcto');\n const leads=(c._embedded?.leads||[]).map(l=>Number(l.id)).filter(Number.isSafeInteger);\n if(leads.length>50)throw Error('Demasiados leads del contacto: requiere revisión manual');\n return {...job,contact_id:c.id,contact_name:c.name||job.contact_name,contact_lead_ids:leads};\n}\nfunction findAppointmentLead(job,response){\n const rows=unpack(response)?._embedded?.leads||[];\n const exact=rows.filter(l=>Number(l.pipeline_id)===PIPELINE&&String(l.name||'').includes(job.marker));\n if(exact.length>1)throw Error('Más de un lead para esta cita: requiere revisión manual');\n return {...job,app_lead:exact[0]||null};\n}\nfunction decideLead(job,response){\n const active=l=>Number(l.pipeline_id)===PIPELINE&&![142,143].includes(Number(l.status_id));\n let lead=job.app_lead;\n if(!lead&&norm(job.contact_name)===norm(job.paciente_nombre)){\n  const candidates=(unpack(response)?._embedded?.leads||[]).filter(l=>{\n   if(!active(l)||/\\[APPHC\\d+\\]/.test(String(l.name||'')))return false;\n   const booked=(l.custom_fields_values||[]).find(f=>Number(f.field_id)===FECHA_FIELD)?.values?.[0]?.value;\n   return !booked||Number(booked)*1000<Date.now()||Math.abs(Number(booked)*1000-Date.parse(job.starts_at))<60000;\n  });\n  if(candidates.length>1)throw Error('Varios leads activos de Héctor: requiere vinculación manual');\n  lead=candidates[0]||null;\n }\n const closed=lead&&[142,143].includes(Number(lead.status_id));\n const appExists=Boolean(job.app_lead);\n const existingName=String(lead?.name||job.paciente_nombre+' · Cita Dr. Héctor').replace(/[\\r\\n\\t]/g,' ').trim();\n const name=existingName.includes(job.marker)?existingName:existingName.slice(0,220-job.marker.length)+' '+job.marker;\n const body={...(lead?{id:Number(lead.id)}:{}),name,...(!appExists?{pipeline_id:PIPELINE,status_id:CONFIRMACION}:{}),custom_fields_values:[{field_id:FECHA_FIELD,values:[{value:Math.floor(Date.parse(job.starts_at)/1000)}]}],...(!lead?{_embedded:{contacts:[{id:job.contact_id,is_main:true}]}}:{})};\n return {...job,lead_id:lead?.id||null,noop:Boolean(closed),lead_body:[body]};\n}\nfunction result(job,response){const raw=unpack(response),lead=raw?._embedded?.leads?.[0]||raw;if(!Number.isInteger(lead.id)||lead.id<=0||(job.lead_id&&Number(job.lead_id)!==lead.id))throw Error('Kommo no confirmó el lead de la cita');return {ok:true,cita_id:job.cita_id,lead_id:lead.id,pipeline_id:PIPELINE,estado:job.noop?'cerrado_sin_cambios':job.lead_id?'actualizado':'creado',etapa:job.noop?null:job.app_lead?job.app_lead.status_id:CONFIRMACION,cancelacion_automatica:false};}\n\nreturn [{json:result($('Preparar lead de cita').first().json,$input.first().json)}];"
+      }
+    }
+  ],
+  "connections": {
+    "Recibir cita app": {
+      "main": [
+        [
+          {
+            "node": "Validar cita app",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prueba sin escrituras": {
+      "main": [
+        [
+          {
+            "node": "Datos de prueba",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Datos de prueba": {
+      "main": [
+        [
+          {
+            "node": "Validar cita app",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar cita app": {
+      "main": [
+        [
+          {
+            "node": "Buscar contacto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar contacto": {
+      "main": [
+        [
+          {
+            "node": "Elegir contacto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Elegir contacto": {
+      "main": [
+        [
+          {
+            "node": "Solo lectura de prueba",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Solo lectura de prueba": {
+      "main": [
+        [
+          {
+            "node": "Resultado prueba",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Resolver contacto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolver contacto": {
+      "main": [
+        [
+          {
+            "node": "Contacto confirmado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Contacto confirmado": {
+      "main": [
+        [
+          {
+            "node": "Buscar cita en Kommo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar cita en Kommo": {
+      "main": [
+        [
+          {
+            "node": "Evaluar vínculo de cita",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluar vínculo de cita": {
+      "main": [
+        [
+          {
+            "node": "Leer leads del contacto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer leads del contacto": {
+      "main": [
+        [
+          {
+            "node": "Preparar lead de cita",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar lead de cita": {
+      "main": [
+        [
+          {
+            "node": "Guardar lead de cita",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar lead de cita": {
+      "main": [
+        [
+          {
+            "node": "Resultado Kommo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "none",
+    "saveManualExecutions": false,
+    "timezone": "America/Mexico_City"
+  },
+  "pinData": {}
+}
