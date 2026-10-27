@@ -1,12 +1,23 @@
 function unpack(r){for(let i=0;i<5;i++){if(typeof r==='string'){r=JSON.parse(r);continue;}if(r?._embedded)return r;if(r?.data!==undefined){r=r.data;continue;}if(r?.body!==undefined){r=r.body;continue;}break;}return r||{};}
 const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
 const phone=s=>String(s||'').replace(/\D/g,'').slice(-10);
-const PIPELINE=8678943,CONFIRMACION=68204659,FECHA_FIELD=1989801;
+const PIPELINE=8678943,CONFIRMACION=68204659,FECHA_FIELD=1989801,MOTIVO_FIELD=1992485,FECHA_VISIBLE_FIELD=1992487;
 function validateEvent(e){
  if(e.tipo!=='cita_agendada')return null;
  const citaId=String(e.cita_id||''),pid=String(e.paciente_id||''),tel=phone(e.telefono),nombre=String(e.paciente_nombre||'').replace(/[\r\n\t]/g,' ').trim().slice(0,140),starts=String(e.starts_at||'');
  if(!/^[1-9]\d{0,19}$/.test(citaId)||!/^[1-9]\d{0,19}$/.test(pid)||tel.length!==10||!nombre||!/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:?\d{2})$/.test(starts)||!Number.isFinite(Date.parse(starts)))throw Error('Datos de cita incompletos para Kommo');
- return {tipo:e.tipo,cita_id:citaId,paciente_id:pid,telefono:tel,paciente_nombre:nombre,email:/^\S+@\S+\.\S+$/.test(String(e.paciente_email||''))?String(e.paciente_email).trim().toLowerCase():'',starts_at:starts,marker:'[APPHC'+citaId+']',query:'APPHC'+citaId,dry_run:e.dry_run===true};
+ return {motivo_consulta:String(e.motivo_consulta||'').trim().slice(0,500),encounter_type_id:String(e.encounter_type_id||''),tipo:e.tipo,cita_id:citaId,paciente_id:pid,telefono:tel,paciente_nombre:nombre,email:/^\S+@\S+\.\S+$/.test(String(e.paciente_email||''))?String(e.paciente_email).trim().toLowerCase():'',starts_at:starts,marker:'[APPHC'+citaId+']',query:'APPHC'+citaId,dry_run:e.dry_run===true};
+}
+function resolveBudget(job,response){
+ const source=typeof response==='string'?response:response.data||response.body||'';
+ const match=String(source).match(/window\.HECTOR_SERVICES\s*=\s*(\[[\s\S]*\])\s*;/);
+ if(!match)throw Error('No se pudo leer el catálogo vigente de la app');
+ const services=JSON.parse(match[1]);
+ const options=services.filter(s=>norm(s.cause)===norm(job.motivo_consulta)&&String(s.encounterTypeId)===job.encounter_type_id);
+ if(options.length!==1)throw Error('Consulta sin precio único en catálogo: revisar presupuesto manualmente');
+ const service=options[0];const amount=Number(service.promo??service.regular);
+ if(!Number.isFinite(amount)||amount<=0)throw Error('Presupuesto inválido en catálogo');
+ const botTypes={gine_basica:'Servicio Básico Gine',gine_plus:'Servicio Plus Gine',embarazo_control:'Control Embarazo',balance_seguimiento:'Balance Hormonal'};return {...job,presupuesto:amount,servicio:service.name||service.title||service.code,tipo_consulta_bot:botTypes[service.code]||service.name};
 }
 function chooseContact(job,response){
  const rows=unpack(response)?._embedded?.contacts||[];
@@ -14,7 +25,7 @@ function chooseContact(job,response){
  const names=exact.filter(c=>norm(c.name)===norm(job.paciente_nombre));
  const chosen=names.length===1?names[0]:exact.length===1?exact[0]:null;
  if(exact.length>1&&!chosen)throw Error('Varios contactos con el mismo teléfono: requiere vinculación manual');
- return {...job,contact_id:chosen?.id||null,contact_name:chosen?.name||'',contact_body:[{name:job.paciente_nombre,custom_fields_values:[{field_code:'PHONE',values:[{value:'+52'+job.telefono,enum_code:'MOB'}]},...(job.email?[{field_code:'EMAIL',values:[{value:job.email,enum_code:'WORK'}]}]:[])]}]};
+ const fields=[{field_id:724110,values:[{value:Math.floor(Date.parse(job.starts_at)/1000)}]},{field_id:1988336,values:[{value:job.tipo_consulta_bot||job.motivo_consulta}]}];const update=Boolean(chosen&&norm(chosen.name)===norm(job.paciente_nombre));return {...job,contact_update:update,contact_update_body:chosen?[{id:chosen.id,custom_fields_values:fields}]:null,contact_id:chosen?.id||null,contact_name:chosen?.name||'',contact_body:[{name:job.paciente_nombre,custom_fields_values:[...fields,{field_code:'PHONE',values:[{value:'+52'+job.telefono,enum_code:'MOB'}]},...(job.email?[{field_code:'EMAIL',values:[{value:job.email,enum_code:'WORK'}]}]:[])]}]};
 }
 function resolvedContact(job,response){
  const raw=unpack(response),c=raw?._embedded?.contacts?.[0]||raw;
@@ -45,8 +56,8 @@ function decideLead(job,response){
  const appExists=Boolean(job.app_lead);
  const existingName=String(lead?.name||job.paciente_nombre+' · Cita Dr. Héctor').replace(/[\r\n\t]/g,' ').trim();
  const name=existingName.includes(job.marker)?existingName:existingName.slice(0,220-job.marker.length)+' '+job.marker;
- const body={...(lead?{id:Number(lead.id)}:{}),name,...(!appExists?{pipeline_id:PIPELINE,status_id:CONFIRMACION}:{}),custom_fields_values:[{field_id:FECHA_FIELD,values:[{value:Math.floor(Date.parse(job.starts_at)/1000)}]}],...(!lead?{_embedded:{contacts:[{id:job.contact_id,is_main:true}]}}:{})};
+ const body={...(lead?{id:Number(lead.id)}:{}),name,...(!appExists?{pipeline_id:PIPELINE,status_id:CONFIRMACION}:{}),...(Number.isFinite(job.presupuesto)?{price:job.presupuesto}:{}),custom_fields_values:[{field_id:FECHA_FIELD,values:[{value:Math.floor(Date.parse(job.starts_at)/1000)}]},{field_id:FECHA_VISIBLE_FIELD,values:[{value:Math.floor(Date.parse(job.starts_at)/1000)}]},...(job.motivo_consulta?[{field_id:MOTIVO_FIELD,values:[{value:job.motivo_consulta}]}]:[])],...(!lead?{_embedded:{contacts:[{id:job.contact_id,is_main:true}]}}:{})};
  return {...job,lead_id:lead?.id||null,noop:Boolean(closed),lead_body:[body]};
 }
 function result(job,response){const raw=unpack(response),lead=raw?._embedded?.leads?.[0]||raw;if(!Number.isInteger(lead.id)||lead.id<=0||(job.lead_id&&Number(job.lead_id)!==lead.id))throw Error('Kommo no confirmó el lead de la cita');return {ok:true,cita_id:job.cita_id,lead_id:lead.id,pipeline_id:PIPELINE,estado:job.noop?'cerrado_sin_cambios':job.lead_id?'actualizado':'creado',etapa:job.noop?null:job.app_lead?job.app_lead.status_id:CONFIRMACION,cancelacion_automatica:false};}
-module.exports={unpack,norm,phone,validateEvent,chooseContact,resolvedContact,findAppointmentLead,decideLead,result};
+module.exports={unpack,norm,phone,validateEvent,resolveBudget,chooseContact,resolvedContact,findAppointmentLead,decideLead,result};

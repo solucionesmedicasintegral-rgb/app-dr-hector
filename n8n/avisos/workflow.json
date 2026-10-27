@@ -16,7 +16,7 @@
     },
     {
       "parameters": {
-        "jsCode": "function validarAviso(raw){\n if(!['cita_agendada','pago_confirmado','liga_solicitada','transferencia_elegida','recordatorio_cita'].includes(raw.tipo))throw new Error('Tipo no permitido');\n const paciente_id=String(raw.paciente_id||'');\n const cita_id=String(raw.cita_id||'');\n const telefono=String(raw.telefono||'').replace(/\\D/g,'').slice(-10);\n if(!/^\\d{1,15}$/.test(paciente_id)||!/^\\d{1,15}$/.test(cita_id)||!/^\\d{10}$/.test(telefono))throw new Error('Datos incompletos');\n if(typeof raw.starts_at!=='string'||!/^\\d{4}-\\d{2}-\\d{2}T.*(?:Z|[+-]\\d{2}:?\\d{2})$/.test(raw.starts_at)||!Number.isFinite(Date.parse(raw.starts_at)))throw new Error('Fecha inválida');\n const monto=Number(raw.monto||0);\n if(!Number.isFinite(monto)||monto<0)throw new Error('Monto inválido');\n if(raw.tipo==='pago_confirmado'&&monto<=0)throw new Error('Monto inválido');\n return {prueba:raw.prueba===true,tipo:raw.tipo,evento_id:`${raw.tipo}:${cita_id}${raw.tipo==='recordatorio_cita'?':'+raw.starts_at:''}`,paciente_id,cita_id,telefono,starts_at:raw.starts_at,modalidad:raw.modalidad==='virtual'?'virtual':'presencial',monto};\n}\nreturn [{json:validarAviso($input.first().json)}];"
+        "jsCode": "function validarAviso(raw){\n if(!['cita_agendada','pago_confirmado','liga_solicitada','transferencia_elegida','recordatorio_cita'].includes(raw.tipo))throw new Error('Tipo no permitido');\n const paciente_id=String(raw.paciente_id||'');\n const cita_id=String(raw.cita_id||'');\n const telefono=String(raw.telefono||'').replace(/\\D/g,'').slice(-10);\n if(!/^\\d{1,15}$/.test(paciente_id)||!/^\\d{1,15}$/.test(cita_id)||!/^\\d{10}$/.test(telefono))throw new Error('Datos incompletos');\n if(typeof raw.starts_at!=='string'||!/^\\d{4}-\\d{2}-\\d{2}T.*(?:Z|[+-]\\d{2}:?\\d{2})$/.test(raw.starts_at)||!Number.isFinite(Date.parse(raw.starts_at)))throw new Error('Fecha inválida');\n const monto=Number(raw.monto||0);\n if(!Number.isFinite(monto)||monto<0)throw new Error('Monto inválido');\n if(raw.tipo==='pago_confirmado'&&monto<=0)throw new Error('Monto inválido');\n return {motivo_consulta:String(raw.motivo_consulta||'').trim().slice(0,500),encounter_type_id:String(raw.encounter_type_id||''),prueba:raw.prueba===true,tipo:raw.tipo,evento_id:`${raw.tipo}:${cita_id}${raw.tipo==='recordatorio_cita'?':'+raw.starts_at:''}`,paciente_id,cita_id,telefono,starts_at:raw.starts_at,modalidad:raw.modalidad==='virtual'?'virtual':'presencial',monto};\n}\nreturn [{json:validarAviso($input.first().json)}];"
       },
       "id": "85641ce1-4bc7-44a1-9619-6a297f6538f3",
       "name": "Validar aviso",
@@ -296,7 +296,7 @@
         -300
       ],
       "parameters": {
-        "jsCode": "const e=$('Validar aviso').first().json;\nif(e.tipo!=='cita_agendada')return [];\nconst r=$('Buscar expediente').first().json;\nconst candidates=Array.isArray(r.pacientes)?r.pacientes:(r.paciente?[r.paciente]:[]);\nconst p=r.encontrado===true?candidates.find(p=>String(p.id||p.person_id||p.patient_id||'')===String(e.paciente_id)):null;\nif(!p)throw new Error('El expediente de la cita no coincide');\nconst nombre=String(p.nombre||p.full_name||[p.first_name,p.middle_name,p.last_name,p.maternal_name].filter(Boolean).join(' ')).trim();\nreturn [{json:{tipo:e.tipo,cita_id:String(e.cita_id),paciente_id:String(e.paciente_id),telefono:String(e.telefono||''),paciente_nombre:nombre,paciente_email:String(p.email||''),starts_at:String(e.starts_at||'')}}];\n"
+        "jsCode": "const e=$('Validar aviso').first().json;\nif(e.tipo!=='cita_agendada')return [];\nconst r=$('Buscar expediente').first().json;\nconst candidates=Array.isArray(r.pacientes)?r.pacientes:(r.paciente?[r.paciente]:[]);\nconst p=r.encontrado===true?candidates.find(p=>String(p.id||p.person_id||p.patient_id||'')===String(e.paciente_id)):null;\nif(!p)throw new Error('El expediente de la cita no coincide');\nconst nombre=String(p.nombre||p.full_name||[p.first_name,p.middle_name,p.last_name,p.maternal_name].filter(Boolean).join(' ')).trim();\nreturn [{json:{tipo:e.tipo,cita_id:String(e.cita_id),paciente_id:String(e.paciente_id),telefono:String(e.telefono||''),paciente_nombre:nombre,paciente_email:String(p.email||''),starts_at:String(e.starts_at||''),motivo_consulta:String(e.motivo_consulta||''),encounter_type_id:String(e.encounter_type_id||'')}}];\n"
       },
       "onError": "continueRegularOutput"
     },
@@ -448,7 +448,7 @@
       ]
     }
   },
-  "active": false,
+  "active": true,
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
