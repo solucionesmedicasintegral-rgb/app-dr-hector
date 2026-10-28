@@ -1,4 +1,4 @@
-const C='hector-pwa-v54';
+const C='hector-pwa-v55';
 self.addEventListener('install',e=>{
   self.skipWaiting();
   e.waitUntil(caches.open(C).then(c=>c.addAll([
@@ -6,6 +6,7 @@ self.addEventListener('install',e=>{
     './index.html',
     './config.js',
     './services.js',
+    './scheduling-guards.js?v=20261028',
     './manifest.json',
     './assets/logo-paciente.png',
     './assets/icon-paciente-192.png',

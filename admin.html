@@ -37,6 +37,7 @@
 <div id="installMount"></div>
 <script src="config.js"></script>
 <script src="services.js"></script>
+<script src="scheduling-guards.js?v=20261028"></script>
 <script src="admin-operations.js?v=20261005"></script>
 <script src="hospital-quotes.js?v=20261023"></script>
 <script>
@@ -88,13 +89,14 @@ const money = n => new Intl.NumberFormat('es-MX',{
 }).format(Number(n||0));
 
 async function core(body){
+  HECTOR_SCHEDULING.guard(body);
   const r = await fetch(C.webhook,{
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify(body)
   });
   if(!r.ok) throw new Error('HTTP '+r.status);
-  return r.json();
+  return HECTOR_SCHEDULING.filter(await r.json(),body);
 }
 
 function setLoading(on,text='Procesando…'){state.loading=on;state.loadingText=text;render()}
