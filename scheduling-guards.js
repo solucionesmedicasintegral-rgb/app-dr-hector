@@ -1,6 +1,6 @@
-/* Temporary exclusion confirmed by the consultorio. Calendar source validation remains required in Core. */
+/* Core validates the live Nimbo and Google calendars before offering or saving a slot. */
 (function(root){
- const blocks=[{start:Date.parse('2026-11-03T17:00:00-06:00'),end:Date.parse('2026-11-03T20:00:00-06:00')}];
+ const blocks=[];
  function allowed(slot,duration){
   const start=Date.parse(String(slot?.fecha||'')+'T'+String(slot?.hora||'')+':00-06:00');
   const minutes=Number(duration);
