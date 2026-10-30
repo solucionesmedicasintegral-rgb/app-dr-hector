@@ -1,0 +1,169 @@
+{
+  "0": {
+    "answer": [
+      {
+        "params": [
+          {
+            "value": "Ya pagué",
+            "params": [
+              {
+                "params": {
+                  "step": 1,
+                  "type": "question"
+                },
+                "handler": "goto"
+              }
+            ],
+            "synonyms": []
+          },
+          {
+            "value": "Quiero la cuenta",
+            "params": [
+              {
+                "params": {
+                  "step": 2,
+                  "type": "question"
+                },
+                "handler": "goto"
+              }
+            ],
+            "synonyms": []
+          },
+          {
+            "value": "Quiero liga",
+            "params": [
+              {
+                "params": {
+                  "step": 3,
+                  "type": "question"
+                },
+                "handler": "goto"
+              }
+            ],
+            "synonyms": []
+          }
+        ],
+        "handler": "buttons"
+      }
+    ],
+    "question": [
+      {
+        "handler": "send_message",
+        "params": {
+          "type": "external",
+          "tag": "",
+          "send_to_all_chat_sources": true,
+          "recipient": {
+            "type": "main_contact",
+            "way_of_communication": "any_first"
+          },
+          "is_in_starting_block": true,
+          "template_id": 67621,
+          "products": null,
+          "footer": null,
+          "on_error": null
+        }
+      }
+    ]
+  },
+  "1": {
+    "question": [
+      {
+        "params": {
+          "trigger": {
+            "delay": 0,
+            "action": "create_task",
+            "segments": [
+              ""
+            ],
+            "settings": {
+              "task_text": "APP · La paciente indicó “Ya pagué”. Revisar o solicitar comprobante y validar el pago desde el admin. Esta respuesta no acredita el pago.",
+              "task_type": "1",
+              "deadline-days": "",
+              "deadline-hours": "",
+              "task_type_name": "Seguimiento",
+              "within-deadline": "0",
+              "deadline-minutes": "",
+              "responsible_user": "current"
+            },
+            "date_exec": 0,
+            "handler_code": "amocrm",
+            "execution_condition": {
+              "id": 45,
+              "name": "execute_trigger"
+            }
+          },
+          "element_type": "lead"
+        },
+        "handler": "trigger"
+      }
+    ]
+  },
+  "2": {
+    "question": [
+      {
+        "params": {
+          "trigger": {
+            "delay": 0,
+            "action": "create_task",
+            "segments": [
+              ""
+            ],
+            "settings": {
+              "task_text": "APP · La paciente solicitó la cuenta para transferencia. Enviar los datos bancarios vigentes y dar seguimiento al pago. No marcar como pagado hasta validarlo en el admin.",
+              "task_type": "1",
+              "deadline-days": "",
+              "deadline-hours": "",
+              "task_type_name": "Seguimiento",
+              "within-deadline": "0",
+              "deadline-minutes": "",
+              "responsible_user": "current"
+            },
+            "date_exec": 0,
+            "handler_code": "amocrm",
+            "execution_condition": {
+              "id": 45,
+              "name": "execute_trigger"
+            }
+          },
+          "element_type": "lead"
+        },
+        "handler": "trigger"
+      }
+    ]
+  },
+  "3": {
+    "question": [
+      {
+        "params": {
+          "trigger": {
+            "delay": 0,
+            "action": "create_task",
+            "segments": [
+              ""
+            ],
+            "settings": {
+              "task_text": "APP · La paciente solicitó liga de pago. Preparar y enviar la liga correspondiente al presupuesto de esta cita. La solicitud no acredita un pago.",
+              "task_type": "1",
+              "deadline-days": "",
+              "deadline-hours": "",
+              "task_type_name": "Seguimiento",
+              "within-deadline": "0",
+              "deadline-minutes": "",
+              "responsible_user": "current"
+            },
+            "date_exec": 0,
+            "handler_code": "amocrm",
+            "execution_condition": {
+              "id": 45,
+              "name": "execute_trigger"
+            }
+          },
+          "element_type": "lead"
+        },
+        "handler": "trigger"
+      }
+    ]
+  },
+  "conversation": false
+}

@@ -1,7 +1,7 @@
 function unpack(r){for(let i=0;i<5;i++){if(typeof r==='string'){r=JSON.parse(r);continue;}if(r?._embedded)return r;if(r?.data!==undefined){r=r.data;continue;}if(r?.body!==undefined){r=r.body;continue;}break;}return r||{};}
 const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
 const phone=s=>String(s||'').replace(/\D/g,'').slice(-10);
-const PIPELINE=8678943,CONFIRMACION=68204659,FECHA_FIELD=1989801,MOTIVO_FIELD=1992485,FECHA_VISIBLE_FIELD=1992487;
+const PIPELINE=8678943,CONFIRMACION=113484504,FECHA_FIELD=1989801,MOTIVO_FIELD=1992485,FECHA_VISIBLE_FIELD=1992487;
 function validateEvent(e){
  if(e.tipo!=='cita_agendada')return null;
  const citaId=String(e.cita_id||''),pid=String(e.paciente_id||''),tel=phone(e.telefono),nombre=String(e.paciente_nombre||'').replace(/[\r\n\t]/g,' ').trim().slice(0,140),starts=String(e.starts_at||'');
@@ -60,4 +60,18 @@ function decideLead(job,response){
  return {...job,lead_id:lead?.id||null,noop:Boolean(closed),lead_body:[body]};
 }
 function result(job,response){const raw=unpack(response),lead=raw?._embedded?.leads?.[0]||raw;if(!Number.isInteger(lead.id)||lead.id<=0||(job.lead_id&&Number(job.lead_id)!==lead.id))throw Error('Kommo no confirmó el lead de la cita');return {ok:true,cita_id:job.cita_id,lead_id:lead.id,pipeline_id:PIPELINE,estado:job.noop?'cerrado_sin_cambios':job.lead_id?'actualizado':'creado',etapa:job.noop?null:job.app_lead?job.app_lead.status_id:CONFIRMACION,cancelacion_automatica:false};}
-module.exports={unpack,norm,phone,validateEvent,resolveBudget,chooseContact,resolvedContact,findAppointmentLead,decideLead,result};
+const PAGO_VALIDADO=113484604;
+function validatePaid(e){
+ if(e.tipo!=='pago_confirmado')return null;
+ const cita_id=String(e.cita_id||''),paciente_id=String(e.paciente_id||'');
+ if(!/^[1-9]\d{0,19}$/.test(cita_id)||!/^[1-9]\d{0,19}$/.test(paciente_id)||!(Number(e.monto)>0))throw Error('Confirmación de pago incompleta');
+ return {tipo:e.tipo,cita_id,paciente_id,query:'APPHC'+cita_id,marker:'[APPHC'+cita_id+']'};
+}
+function preparePaid(job,response){
+ const leads=(unpack(response)?._embedded?.leads||[]).filter(l=>Number(l.pipeline_id)===PIPELINE&&String(l.name||'').includes(job.marker));
+ if(leads.length!==1)throw Error('No se encontró un lead único de esta cita para validar el pago');
+ const lead=leads[0];const noop=![CONFIRMACION,68204659].includes(Number(lead.status_id));
+ return {...job,lead_id:lead.id,noop,lead_body:[{id:lead.id,status_id:PAGO_VALIDADO}]};
+}
+function resultPaid(job,response){const raw=unpack(response),lead=raw?._embedded?.leads?.[0]||raw;if(lead.id!==job.lead_id)throw Error('Kommo no confirmó el lead del pago');return {ok:true,cita_id:job.cita_id,lead_id:lead.id,estado:job.noop?'etapa_conservada':'pago_validado',cancelacion_automatica:false};}
+module.exports={unpack,norm,phone,validateEvent,resolveBudget,chooseContact,resolvedContact,findAppointmentLead,decideLead,result,validatePaid,preparePaid,resultPaid};
